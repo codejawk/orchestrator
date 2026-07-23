@@ -1,0 +1,179 @@
+{
+  "name": "orchestrator",
+  "displayName": "Orchestrator",
+  "description": "Plans on Gauss, executes across Claude, Codex and Gemini, and reports what it saved.",
+  "version": "0.0.1",
+  "publisher": "internal",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "//main": "Bundled as .cjs: the extension host loads CommonJS, while the sources stay ESM so node --test can run them directly.",
+  "main": "./dist/extension.cjs",
+  "activationEvents": [],
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "orchestrator.chat",
+        "name": "orchestrator",
+        "fullName": "Orchestrator",
+        "description": "Clarify, compress, decompose, route. Planning stays on Gauss.",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "status",
+            "description": "Which models are available, and what each can do"
+          },
+          {
+            "name": "report",
+            "description": "Savings report for the last completed run"
+          },
+          {
+            "name": "approvals",
+            "description": "Files currently approved for external models"
+          },
+          {
+            "name": "audit",
+            "description": "Verify the tamper-evident audit log"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "orchestrator.showAdapterStatus",
+        "title": "Orchestrator: Show Model Adapter Status"
+      },
+      {
+        "command": "orchestrator.setGaussApiKey",
+        "title": "Orchestrator: Set Gauss API Key"
+      },
+      {
+        "command": "orchestrator.clearGaussApiKey",
+        "title": "Orchestrator: Clear Gauss API Key"
+      },
+      {
+        "command": "orchestrator.revokeApprovals",
+        "title": "Orchestrator: Revoke All File Approvals"
+      },
+      {
+        "command": "orchestrator.verifyAudit",
+        "title": "Orchestrator: Verify Audit Log Integrity"
+      },
+      {
+        "command": "orchestrator.reviewEdits",
+        "title": "Orchestrator: Review Proposed Edits",
+        "enablement": "false"
+      }
+    ],
+    "configuration": {
+      "title": "Orchestrator",
+      "properties": {
+        "orchestrator.gauss.baseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Base URL of the internal Gauss API. All planning traffic goes here and nowhere else."
+        },
+        "orchestrator.gauss.model": {
+          "type": "string",
+          "default": "gauss",
+          "description": "Model identifier used for all planning calls."
+        },
+        "orchestrator.adapters.claude.path": {
+          "type": "string",
+          "default": "claude",
+          "description": "Path to the Claude Code CLI binary."
+        },
+        "orchestrator.adapters.codex.path": {
+          "type": "string",
+          "default": "codex",
+          "description": "Path to the Codex CLI binary."
+        },
+        "orchestrator.adapters.gemini.path": {
+          "type": "string",
+          "default": "gemini",
+          "description": "Path to the Gemini CLI binary."
+        },
+        "orchestrator.adapters.env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "markdownDescription": "Extra environment variables for spawned CLIs, merged over the extension host's own environment.\n\nThe CLIs authenticate themselves — this extension never holds an Anthropic, OpenAI or Google key. But a VS Code window launched from Finder or the Dock does **not** inherit your shell profile, so a key exported in `.zshrc` will be missing and the CLI fails with an auth error that looks like an extension bug.\n\nExample: `{ \"ANTHROPIC_BASE_URL\": \"https://llm-gateway.internal\", \"CLAUDE_CODE_USE_BEDROCK\": \"1\" }`.\n\nPrefer pointing at a gateway or a credential helper over pasting a raw key here — `settings.json` is usually a tracked file."
+        },
+        "orchestrator.pricing": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Per-model price overrides in USD per million tokens, e.g. `{ \"claude-opus-4-8\": { \"input\": 5, \"output\": 25 } }`. Merged over the built-in table. Prices change; keep this current."
+        },
+        "orchestrator.baseline.sampleRate": {
+          "type": "number",
+          "default": 0.05,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of tasks that also run a true naive baseline to calibrate the savings estimator. Costs real tokens."
+        },
+        "orchestrator.baseline.frontierModel": {
+          "type": "string",
+          "default": "claude-opus-4-8",
+          "description": "Model the modeled baseline assumes a developer would otherwise have used."
+        },
+        "orchestrator.policy.codenames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Internal project codenames. Any file mentioning one is classified `confidential` before Gauss is even asked. Cheap and highly effective — keep this list current."
+        },
+        "orchestrator.policy.allowRestrictedOverride": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Allow a reviewer to approve a `restricted` file for external use. Off by default: the restricted tier exists precisely so that bootloader, TEE and key material are not a per-file judgement call. Turn on only with security owner sign-off."
+        },
+        "orchestrator.scan.maxFiles": {
+          "type": "number",
+          "default": 2000,
+          "description": "Maximum files collected per scan."
+        },
+        "orchestrator.scan.digestTokens": {
+          "type": "number",
+          "default": 400,
+          "markdownDescription": "Token budget for the sample of each file sent to Gauss. Secret detection runs on full content regardless; this only bounds the semantic judgement. Raise it to close the gap where a lone sensitive paragraph sits mid-file."
+        },
+        "orchestrator.scan.batchSize": {
+          "type": "number",
+          "default": 12,
+          "description": "Files classified per Gauss call. Larger batches amortize prompt overhead."
+        },
+        "orchestrator.context.budgetTokens": {
+          "type": "number",
+          "default": 30000,
+          "description": "Ceiling on selected context per plan."
+        },
+        "orchestrator.budget.maxRunUsd": {
+          "type": "number",
+          "default": 0,
+          "markdownDescription": "Hard spend ceiling for a single run, in USD, including Gauss planning. Once real provider-reported spend crosses it, no further subtask is dispatched. `0` means no cap. This is the safety net under plan approval: approval gates the *forecast*, this stops a run that blows past it."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "vscode:prepublish": "node esbuild.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.104.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}
