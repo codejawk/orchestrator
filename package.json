@@ -3,10 +3,14 @@
   "displayName": "Orchestrator",
   "description": "Plans on Gauss, executes across Claude, Codex and Gemini, and reports what it saved.",
   "version": "0.0.1",
-  "publisher": "internal",
+  "publisher": "codejawk",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codejawk/orchestrator.git"
+  },
   "engines": {
     "vscode": "^1.104.0"
   },
@@ -19,6 +23,24 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "orchestrator",
+          "title": "Orchestrator",
+          "icon": "media/orchestrator.svg"
+        }
+      ]
+    },
+    "views": {
+      "orchestrator": [
+        {
+          "id": "orchestrator.chatView",
+          "name": "Orchestrator",
+          "type": "webview"
+        }
+      ]
+    },
     "chatParticipants": [
       {
         "id": "orchestrator.chat",

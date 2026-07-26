@@ -6,6 +6,7 @@ import { registerChatParticipant } from './chat/participant.ts';
 import { Pipeline } from './pipeline.ts';
 import { applyEdit, previewEdit } from './workspace.ts';
 import { showSecurityMap } from './panel/SecurityMapPanel.ts';
+import { SidebarViewProvider } from './panel/SidebarView.ts';
 
 let output: vscode.LogOutputChannel;
 
@@ -16,7 +17,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const registry = new AdapterRegistry(adapterBins);
   const pipeline = new Pipeline(context, registry);
 
+  // The dedicated left-side panel (its own activity-bar icon), alongside the
+  // native @orchestrator chat participant. Both drive the same pipeline.
+  const sidebar = new SidebarViewProvider(context.extensionUri, pipeline);
+
   context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(SidebarViewProvider.viewType, sidebar, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
     vscode.commands.registerCommand('orchestrator.showAdapterStatus', () => showAdapterStatus(registry)),
     vscode.commands.registerCommand('orchestrator.setGaussApiKey', () => setGaussApiKey(context)),
     vscode.commands.registerCommand('orchestrator.clearGaussApiKey', async () => {
