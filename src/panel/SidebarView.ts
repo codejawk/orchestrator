@@ -102,6 +102,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
     } finally {
       this.post({ type: 'progress', text: '' });
       this.post({ type: 'busy', busy: false });
+      // Self-correct the banner: a run that reached here proves the planner is
+      // reachable, so make sure the "not configured" notice is not lingering.
+      this.postPlanner();
     }
   }
 
