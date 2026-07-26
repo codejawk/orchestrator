@@ -353,7 +353,7 @@ export class Pipeline {
   async precheck(
     folder?: vscode.Uri,
     token?: vscode.CancellationToken,
-  ): Promise<{ entries: PrecheckEntry[]; scannedCount: number }> {
+  ): Promise<{ entries: PrecheckEntry[]; scannedCount: number; skipped: { path: string; reason: string }[] }> {
     const settings = scanConfig();
     const collected = await collectFiles(folder, settings.maxFiles, settings.maxFileBytes, token);
     const rules = this.rules();
@@ -365,10 +365,76 @@ export class Pipeline {
         tier: result.tier,
         reasons: result.reasons.map((r) => ({ signal: r.signal, detail: r.detail })),
         estTokens: estimateTokens(file.content, 'code'),
+        source: 'regex' as const,
       };
     });
 
-    return { entries, scannedCount: collected.files.length };
+    return { entries, scannedCount: collected.files.length, skipped: collected.skipped };
+  }
+
+  /**
+   * Precheck phase 2: the planner model classifies the files the regex sweep
+   * could not decide — unreleased plans, architecture sensitive by context, the
+   * things a pattern cannot catch.
+   *
+   * This is the whole-directory model scan the user asked for. It leans on the
+   * planner's large context: files are sent in bigger batches with a bigger
+   * per-file sample than the per-request scan uses, because a precheck runs once
+   * and the user has said Gauss can take it. Verdicts are cached by content hash,
+   * so a second precheck of an unchanged tree costs nothing.
+   */
+  async precheckDeep(
+    folder: vscode.Uri | undefined,
+    progress: (message: string) => void,
+    token?: vscode.CancellationToken,
+  ): Promise<{
+    entries: PrecheckEntry[];
+    scannedCount: number;
+    skipped: { path: string; reason: string }[];
+    costUsd: number;
+  }> {
+    const gauss = await this.gauss();
+    const settings = scanConfig();
+    const signal = token ? toAbortSignal(token) : undefined;
+
+    const collected = await collectFiles(folder, settings.maxFiles, settings.maxFileBytes, token);
+
+    const cache = new Map<string, FileVerdict>(
+      Object.entries(this.context.workspaceState.get<Record<string, FileVerdict>>(SCAN_CACHE_KEY) ?? {}),
+    );
+
+    const report = await scanFiles(
+      collected.files.map((file) => ({ path: file.path, content: file.content })),
+      gauss,
+      {
+        rules: this.rules(),
+        // Send more of each file and more files per call than a per-request
+        // scan: a precheck runs once and the planner has the context budget.
+        digestTokens: settings.deepDigestTokens,
+        batchSize: settings.deepBatchSize,
+        cache,
+        onProgress: (done, total) => progress(`Phase 2 — classifying ${done}/${total} with the model…`),
+        ...(signal ? { signal } : {}),
+      },
+    );
+
+    await this.context.workspaceState.update(SCAN_CACHE_KEY, Object.fromEntries(cache));
+
+    const entries: PrecheckEntry[] = report.files.map((file) => ({
+      path: file.path,
+      tier: file.tier,
+      reasons: file.reasons.map((r) => ({ signal: r.signal, detail: r.detail })),
+      estTokens: file.estTokens,
+      source: file.source === 'gauss' || file.source === 'cached' ? ('model' as const) : ('regex' as const),
+      ...(file.summary ? { summary: file.summary } : {}),
+    }));
+
+    return {
+      entries,
+      scannedCount: collected.files.length,
+      skipped: collected.skipped,
+      costUsd: report.costs.reduce((sum, record) => sum + record.usd, 0),
+    };
   }
 
   async recordApprovals(verdicts: FileVerdict[], decision: ApprovalDecision) {

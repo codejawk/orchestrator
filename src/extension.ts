@@ -5,7 +5,7 @@ import type { ProbeResult } from './exec/adapters/types.ts';
 import { registerChatParticipant } from './chat/participant.ts';
 import { Pipeline } from './pipeline.ts';
 import { applyEdit, previewEdit } from './workspace.ts';
-import { showSecurityMap } from './panel/SecurityMapPanel.ts';
+import { runTwoPhasePrecheck } from './ui/precheck.ts';
 import { SidebarViewProvider } from './panel/SidebarView.ts';
 
 let output: vscode.LogOutputChannel;
@@ -89,11 +89,11 @@ async function reviewEdits(edits: ProposedEdit[]): Promise<void> {
 }
 
 async function precheckWorkspace(pipeline: Pipeline): Promise<void> {
-  const { entries, scannedCount } = await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Prechecking workspace security…' },
-    () => pipeline.precheck(),
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'Prechecking workspace…', cancellable: true },
+    (report, token) =>
+      runTwoPhasePrecheck(pipeline, (message) => report.report({ message }), token),
   );
-  showSecurityMap(entries, scannedCount);
 }
 
 async function verifyAudit(pipeline: Pipeline): Promise<void> {

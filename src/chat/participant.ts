@@ -3,7 +3,7 @@ import { gaussConfig } from '../config.ts';
 import type { AdapterRegistry } from '../exec/adapters/registry.ts';
 import { OrchestratorSession, Pipeline } from '../pipeline.ts';
 import { showReportPanel } from '../panel/ReportPanel.ts';
-import { showSecurityMap } from '../panel/SecurityMapPanel.ts';
+import { runTwoPhasePrecheck } from '../ui/precheck.ts';
 import { ConversationController, readReferenceUris } from '../ui/controller.ts';
 import type { OutputSink } from '../ui/sink.ts';
 import { formatUsd } from '../optimize/tokens.ts';
@@ -78,15 +78,24 @@ async function runPrecheck(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
 ): Promise<void> {
-  stream.progress('Sweeping the workspace…');
-  const { entries, scannedCount } = await pipeline.precheck(undefined, token);
-  const flagged = entries.filter((e) => e.tier === 'restricted' || e.tier === 'confidential');
+  const summary = await runTwoPhasePrecheck(pipeline, (message) => stream.progress(message), token);
+
   stream.markdown(
-    `Prechecked **${scannedCount} files** for free (no model). ` +
-      `**${flagged.length}** flagged as sensitive and held back from external models.\n\n` +
-      'Opening the security map — nothing has been sent anywhere.\n',
+    `**Phase 1 (regex):** swept **${summary.scannedCount} files** free — ` +
+      `**${summary.regexFlagged}** flagged` +
+      `${summary.skipped > 0 ? `, ${summary.skipped} skipped (too large or binary)` : ''}.\n\n`,
   );
-  showSecurityMap(entries, scannedCount);
+  if (summary.ranPhase2) {
+    stream.markdown(
+      `**Phase 2 (model):** classified the rest — **${summary.modelFlagged}** flagged` +
+        `${summary.costUsd !== undefined ? ` ($${summary.costUsd.toFixed(4)})` : ''}. ` +
+        'The map now shows both phases.\n',
+    );
+  } else {
+    stream.markdown(
+      '_Phase 2 (model) did not run — no planner configured, or it was cancelled. The regex map is shown._\n',
+    );
+  }
 }
 
 async function renderAudit(pipeline: Pipeline, stream: vscode.ChatResponseStream): Promise<void> {

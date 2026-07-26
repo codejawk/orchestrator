@@ -21,6 +21,17 @@ export interface PrecheckEntry {
   tier: Tier;
   reasons: { signal: string; detail: string }[];
   estTokens: number;
+  /** Which phase produced this verdict. */
+  source?: 'regex' | 'model';
+  /** The model's one-line reason, when phase 2 classified it. */
+  summary?: string;
+}
+
+export interface SecurityMapOptions {
+  /** Header label, e.g. "Phase 1 — regex" or "Phase 2 — regex + model". */
+  phase?: string;
+  /** Model cost of phase 2, shown so the scan is never silently billed. */
+  costUsd?: number;
 }
 
 const TIER_META: Record<Tier, { label: string; blurb: string }> = {
@@ -32,17 +43,33 @@ const TIER_META: Record<Tier, { label: string; blurb: string }> = {
 
 const ORDER: Tier[] = ['restricted', 'confidential', 'internal', 'public'];
 
-export function showSecurityMap(entries: PrecheckEntry[], scannedCount: number): void {
+export interface SkippedFile {
+  path: string;
+  reason: string;
+}
+
+export function showSecurityMap(
+  entries: PrecheckEntry[],
+  scannedCount: number,
+  skipped: SkippedFile[] = [],
+  options: SecurityMapOptions = {},
+): vscode.WebviewPanel {
   const panel = vscode.window.createWebviewPanel(
     'orchestrator.securityMap',
     'Orchestrator — workspace security map',
     vscode.ViewColumn.Active,
     { enableScripts: false, retainContextWhenHidden: true },
   );
-  panel.webview.html = html('Security map', renderBody(entries, scannedCount), '', nonce());
+  panel.webview.html = html('Security map', renderBody(entries, scannedCount, skipped, options), '', nonce());
+  return panel;
 }
 
-function renderBody(entries: PrecheckEntry[], scannedCount: number): string {
+function renderBody(
+  entries: PrecheckEntry[],
+  scannedCount: number,
+  skipped: SkippedFile[],
+  options: SecurityMapOptions,
+): string {
   const counts = ORDER.map((tier) => ({ tier, n: entries.filter((e) => e.tier === tier).length }));
   const flagged = entries.filter((e) => TIER_RANK[e.tier] >= TIER_RANK.confidential);
 
@@ -60,14 +87,15 @@ function renderBody(entries: PrecheckEntry[], scannedCount: number): string {
       <h2><span class="tier tier-${tier}">${esc(TIER_META[tier].label)}</span> &nbsp;${inTier.length}</h2>
       <p class="sub">${esc(TIER_META[tier].blurb)}</p>
       <table>
-        <thead><tr><th>File</th><th style="width:80px">Tokens</th><th>Why flagged</th></tr></thead>
+        <thead><tr><th>File</th><th style="width:80px">Tokens</th><th style="width:70px">By</th><th>Why flagged</th></tr></thead>
         <tbody>
         ${inTier
           .map(
             (e) => `<tr>
               <td class="mono">${esc(e.path)}</td>
               <td class="muted">${esc(formatTokens(e.estTokens))}</td>
-              <td>${e.reasons.length > 0 ? esc(e.reasons[0]?.detail ?? '') : '<span class="muted">—</span>'}</td>
+              <td class="muted">${e.source === 'model' ? '🧠 model' : e.source === 'regex' ? 'regex' : '—'}</td>
+              <td>${esc(e.summary ?? e.reasons[0]?.detail ?? '') || '<span class="muted">—</span>'}</td>
             </tr>`,
           )
           .join('')}
@@ -75,11 +103,19 @@ function renderBody(entries: PrecheckEntry[], scannedCount: number): string {
       </table>`;
   }).join('');
 
+  const phaseLabel = options.phase ?? 'regex sweep';
+  const modelClassified = entries.filter((e) => e.source === 'model').length;
+
   return `
     <h1>Workspace security map</h1>
     <p class="sub">
-      Swept <strong>${scannedCount} files</strong> with deterministic rules — no model, no cost.
-      This is a precheck: nothing has been sent anywhere.
+      <strong>${esc(phaseLabel)}.</strong>
+      Swept <strong>${scannedCount} files</strong>${
+        modelClassified > 0
+          ? `, <strong>${modelClassified}</strong> classified by the planner model${options.costUsd !== undefined ? ` ($${options.costUsd.toFixed(4)})` : ''}`
+          : ' with deterministic rules — no model, no cost'
+      }.
+      This is a precheck: nothing has been sent to an external provider.
     </p>
 
     <div class="stat">
@@ -97,8 +133,48 @@ function renderBody(entries: PrecheckEntry[], scannedCount: number): string {
 
     ${groups}
 
+    ${renderSkipped(skipped)}
+
     <p class="muted" style="margin-top:20px">
       This map uses fast regex rules (secrets, bootloader, TEE/Knox, confidentiality markings, codenames).
       When you make a request, the files it selects also get a semantic classification from the planner model.
     </p>`;
+}
+
+/**
+ * The skipped section.
+ *
+ * Silently dropping large or binary files is what made the map look broken — a
+ * user with a few big data files saw "2 files" and assumed the tool could not
+ * read them. Showing exactly what was skipped, why, and the setting that changes
+ * it turns confusion into an informed choice.
+ */
+function renderSkipped(skipped: SkippedFile[]): string {
+  if (skipped.length === 0) {
+    return '';
+  }
+  const tooLarge = skipped.filter((s) => /over the .* limit/.test(s.reason));
+  const other = skipped.filter((s) => !/over the .* limit/.test(s.reason));
+
+  return `
+    <h2 style="margin-top:24px">Skipped ${skipped.length} file${skipped.length === 1 ? '' : 's'}</h2>
+    <p class="sub">Not read, so not classified. These never reach a model either.</p>
+    ${
+      tooLarge.length > 0
+        ? `<div class="warn"><strong>${tooLarge.length} skipped for size.</strong>
+             Raise <code>orchestrator.scan.maxFileBytes</code> in Settings to include them —
+             but a multi-megabyte file is a very large number of tokens, so it would be
+             skeletonized or truncated before any model saw it. These are usually generated
+             or data files, which this tool is not built to reason over.</div>`
+        : ''
+    }
+    <table>
+      <thead><tr><th>File</th><th>Why skipped</th></tr></thead>
+      <tbody>
+        ${[...tooLarge, ...other]
+          .slice(0, 50)
+          .map((s) => `<tr><td class="mono">${esc(s.path)}</td><td class="muted">${esc(s.reason)}</td></tr>`)
+          .join('')}
+      </tbody>
+    </table>`;
 }

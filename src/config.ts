@@ -89,6 +89,8 @@ export interface ScanConfig {
   maxFileBytes: number;
   digestTokens: number;
   batchSize: number;
+  deepDigestTokens: number;
+  deepBatchSize: number;
   contextBudgetTokens: number;
 }
 
@@ -99,6 +101,10 @@ export function scanConfig(): ScanConfig {
     maxFileBytes: c.get<number>('scan.maxFileBytes', 2 * 1024 * 1024),
     digestTokens: c.get<number>('scan.digestTokens', 400),
     batchSize: c.get<number>('scan.batchSize', 12),
+    // Deep precheck sends more of each file and more files per call, because it
+    // runs once and the planner has the context budget.
+    deepDigestTokens: c.get<number>('scan.deepDigestTokens', 1_500),
+    deepBatchSize: c.get<number>('scan.deepBatchSize', 20),
     contextBudgetTokens: c.get<number>('context.budgetTokens', 30_000),
   };
 }

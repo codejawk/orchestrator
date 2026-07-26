@@ -2,7 +2,7 @@
   "name": "orchestrator",
   "displayName": "Orchestrator",
   "description": "Plans on Gauss, executes across Claude, Codex and Gemini, and reports what it saved.",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "publisher": "codejawk",
   "private": true,
   "license": "UNLICENSED",
@@ -189,7 +189,17 @@
         "orchestrator.scan.batchSize": {
           "type": "number",
           "default": 12,
-          "description": "Files classified per Gauss call. Larger batches amortize prompt overhead."
+          "description": "Files classified per Gauss call during a request. Larger batches amortize prompt overhead."
+        },
+        "orchestrator.scan.deepDigestTokens": {
+          "type": "number",
+          "default": 1500,
+          "markdownDescription": "Per-file sample size for the **deep precheck** (phase 2). Larger than the per-request scan because a precheck runs once — raise it if your planner has a big context window and you want the model to see more of each file."
+        },
+        "orchestrator.scan.deepBatchSize": {
+          "type": "number",
+          "default": 20,
+          "description": "Files per model call during the deep precheck (phase 2)."
         },
         "orchestrator.context.budgetTokens": {
           "type": "number",
