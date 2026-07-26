@@ -57,6 +57,8 @@ export class OrchestratorSession {
   scan?: ScanReport;
   plan?: ExecutionPlan;
   outcome?: ExecutionOutcome;
+  /** The combined answer produced by the synthesis step (your step 6). */
+  synthesis?: string;
 
   constructor(id: string) {
     this.id = id;
@@ -81,6 +83,7 @@ export class OrchestratorSession {
     this.scan = undefined;
     this.plan = undefined;
     this.outcome = undefined;
+    this.synthesis = undefined;
   }
 
   /** Records the outcome of a finished turn for later turns to build on. */

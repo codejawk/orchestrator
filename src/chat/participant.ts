@@ -5,6 +5,7 @@ import { OrchestratorSession, Pipeline } from '../pipeline.ts';
 import { showReviewPanel } from '../panel/ReviewPanel.ts';
 import { showPlanPanel } from '../panel/PlanPanel.ts';
 import { showReportPanel } from '../panel/ReportPanel.ts';
+import { showSecurityMap } from '../panel/SecurityMapPanel.ts';
 import { formatTokens, formatUsd } from '../optimize/tokens.ts';
 import type { RunnerEvent } from '../exec/runner.ts';
 import type { FileVerdict } from '../planner/scanner.ts';
@@ -49,6 +50,8 @@ export function registerChatParticipant(
             return renderApprovals(pipeline, stream);
           case 'audit':
             return await renderAudit(pipeline, stream);
+          case 'precheck':
+            return await runPrecheck(pipeline, stream, token);
         }
 
         // A reply to clarifying questions continues that same turn.
@@ -266,7 +269,13 @@ function renderResults(
   outcome: Awaited<ReturnType<Pipeline['execute']>>,
   stream: vscode.ChatResponseStream,
 ): string {
-  stream.markdown('### Results\n\n');
+  // Step 6: the combined answer leads, since it is what the user actually asked
+  // for. The per-subtask breakdown follows for those who want the detail.
+  if (session.synthesis) {
+    stream.markdown(`## Answer\n\n${session.reveal(session.synthesis)}\n\n---\n\n`);
+  }
+
+  stream.markdown('### Per-subtask results\n\n');
 
   for (const subtask of session.plan?.subtasks ?? []) {
     const skipped = outcome.skipped.find((entry) => entry.id === subtask.id);
@@ -470,6 +479,23 @@ function renderApprovals(pipeline: Pipeline, stream: vscode.ChatResponseStream):
     );
   }
   stream.button({ command: 'orchestrator.revokeApprovals', title: 'Revoke all approvals' });
+}
+
+async function runPrecheck(
+  pipeline: Pipeline,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  stream.progress('Sweeping the workspace…');
+  const { entries, scannedCount } = await pipeline.precheck(undefined, token);
+
+  const flagged = entries.filter((e) => e.tier === 'restricted' || e.tier === 'confidential');
+  stream.markdown(
+    `Prechecked **${scannedCount} files** for free (no model). ` +
+      `**${flagged.length}** flagged as sensitive and held back from external models.\n\n` +
+      'Opening the security map — nothing has been sent anywhere.\n',
+  );
+  showSecurityMap(entries, scannedCount);
 }
 
 async function renderAudit(pipeline: Pipeline, stream: vscode.ChatResponseStream): Promise<void> {

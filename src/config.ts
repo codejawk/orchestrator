@@ -36,6 +36,12 @@ export function adapterEnv(): Record<string, string> {
   return config().get<Record<string, string>>('adapters.env', {});
 }
 
+export { resolveBare, type BareMode } from './exec/bareAuth.ts';
+
+export function claudeBareMode(): import('./exec/bareAuth.ts').BareMode {
+  return config().get('adapters.claude.bare', 'auto');
+}
+
 export interface GaussConfig {
   baseUrl: string;
   model: string;

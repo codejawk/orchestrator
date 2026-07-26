@@ -42,6 +42,10 @@
           {
             "name": "audit",
             "description": "Verify the tamper-evident audit log"
+          },
+          {
+            "name": "precheck",
+            "description": "Scan the whole workspace and show the security map"
           }
         ]
       }
@@ -66,6 +70,10 @@
       {
         "command": "orchestrator.verifyAudit",
         "title": "Orchestrator: Verify Audit Log Integrity"
+      },
+      {
+        "command": "orchestrator.precheckWorkspace",
+        "title": "Orchestrator: Precheck Workspace Security"
       },
       {
         "command": "orchestrator.reviewEdits",
@@ -100,6 +108,12 @@
           "type": "string",
           "default": "gemini",
           "description": "Path to the Gemini CLI binary."
+        },
+        "orchestrator.adapters.claude.bare": {
+          "type": "string",
+          "enum": ["auto", "on", "off"],
+          "default": "auto",
+          "markdownDescription": "Whether to run `claude` with `--bare` (skips CLAUDE.md/hooks/MCP to save tokens).\n\n`--bare` only works with an **API key** (`ANTHROPIC_API_KEY`), a gateway token, or Bedrock/Vertex — it cannot use a plain **Claude Pro/Max subscription login**.\n\n- `auto` (default): on when an API-key-style credential is present, off otherwise — so your Pro subscription works out of the box.\n- `on`: always use `--bare` (requires an API key).\n- `off`: never use it (needed for subscription auth; costs a little more per call)."
         },
         "orchestrator.adapters.env": {
           "type": "object",

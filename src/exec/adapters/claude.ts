@@ -27,10 +27,18 @@ export class ClaudeAdapter implements ModelAdapter {
 
   private readonly bin: string;
   private readonly prices: PriceTable;
+  /**
+   * Whether to pass `--bare`. It saves tokens (skips CLAUDE.md/hooks/MCP) but
+   * requires an API-key-style credential — a plain Pro/Max subscription login
+   * cannot use it. Defaults to true; the pipeline turns it off for subscription
+   * auth so a developer's own Claude account works through this tool.
+   */
+  private readonly useBare: boolean;
 
-  constructor(bin: string, prices: PriceTable) {
+  constructor(bin: string, prices: PriceTable, useBare = true) {
     this.bin = bin;
     this.prices = prices;
+    this.useBare = useBare;
   }
 
   probe(): Promise<ProbeResult> {
@@ -43,7 +51,7 @@ export class ClaudeAdapter implements ModelAdapter {
 
     const args = [
       '--print',
-      '--bare',
+      ...(this.useBare ? ['--bare'] : []),
       '--model',
       subtask.model,
       '--output-format',

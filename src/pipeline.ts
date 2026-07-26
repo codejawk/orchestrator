@@ -10,6 +10,7 @@ import { scanFiles, type FileVerdict, type ScanReport } from './planner/scanner.
 import { selectContext, type CandidateFile } from './planner/contextSelector.ts';
 import { compilePrompt, renderIR } from './planner/compiler.ts';
 import { decompose } from './planner/decompose.ts';
+import { synthesize } from './planner/synthesize.ts';
 import { route, totalEstimate, DEFAULT_TIERS } from './planner/router.ts';
 import { assessPrompt, SessionTaint, type PromptAssessment } from './planner/promptGuard.ts';
 import { estimateTokens } from './optimize/tokens.ts';
@@ -17,6 +18,7 @@ import { ApprovalStore, partitionByRouting, type ApprovalDecision } from './poli
 import { codenameRule, DEFAULT_RULES, prefilter, type PatternRule } from './policy/patterns.ts';
 import { OrchestratorSession } from './session.ts';
 export { OrchestratorSession, type ConversationTurn } from './session.ts';
+import type { PrecheckEntry } from './panel/SecurityMapPanel.ts';
 import { executePlan, type ExecutionOutcome, type RunnerEvent } from './exec/runner.ts';
 import { EgressGuard } from './policy/egress.ts';
 import { AuditLog, newSalt, type AuditRecord } from './audit/log.ts';
@@ -31,9 +33,11 @@ import {
   adapterEnv,
   baselineConfig,
   budgetConfig,
+  claudeBareMode,
   gaussConfig,
   policyConfig,
   priceOverrides,
+  resolveBare,
   scanConfig,
   AUDIT_SALT_SECRET,
   GAUSS_KEY_SECRET,
@@ -152,8 +156,12 @@ export class Pipeline {
       );
     }
     const apiKey = (await this.context.secrets.get(GAUSS_KEY_SECRET)) ?? '';
-    if (!apiKey) {
-      throw new Error('No Gauss API key stored. Run "Orchestrator: Set Gauss API Key".');
+    // A key is required unless the endpoint is a keyless local stand-in — a
+    // model on localhost, used while the real Gauss endpoint is not yet wired.
+    if (!apiKey && !isLocalEndpoint(config.baseUrl)) {
+      throw new Error(
+        'No planner API key stored. Run "Orchestrator: Set Gauss API Key" — or point orchestrator.gauss.baseUrl at a local model (localhost), which needs no key.',
+      );
     }
     this.gaussClient = new GaussClient({
       baseUrl: config.baseUrl,
@@ -336,6 +344,32 @@ export class Pipeline {
     return { report, excludedBySweep, warnings };
   }
 
+  /**
+   * Step 0: precheck the whole directory with the free regex sweep and return a
+   * red/amber/green map. No model call, so it is instant and costs nothing —
+   * a "look before you leap" the user runs before any request.
+   */
+  async precheck(
+    folder?: vscode.Uri,
+    token?: vscode.CancellationToken,
+  ): Promise<{ entries: PrecheckEntry[]; scannedCount: number }> {
+    const settings = scanConfig();
+    const collected = await collectFiles(folder, settings.maxFiles, token);
+    const rules = this.rules();
+
+    const entries: PrecheckEntry[] = collected.files.map((file) => {
+      const result = prefilter(file.path, file.content, rules);
+      return {
+        path: file.path,
+        tier: result.tier,
+        reasons: result.reasons.map((r) => ({ signal: r.signal, detail: r.detail })),
+        estTokens: estimateTokens(file.content, 'code'),
+      };
+    });
+
+    return { entries, scannedCount: collected.files.length };
+  }
+
   async recordApprovals(verdicts: FileVerdict[], decision: ApprovalDecision) {
     const result = await this.approvals.recordMany(verdicts, decision);
     if (verdicts.length > 0) {
@@ -506,6 +540,26 @@ export class Pipeline {
       ...(token ? { signal: toAbortSignal(token) } : {}),
     });
 
+    // Step 6: the orchestrator combines the subtask results into one answer.
+    // Runs on the planner and works from the ledger's summaries, so it stays
+    // cheap and its cost is folded into the run accounting like any planner call.
+    try {
+      const combined = await synthesize(
+        plan.ir,
+        outcome.ledger.snapshot(),
+        await this.gauss(),
+        token ? toAbortSignal(token) : undefined,
+      );
+      if (combined) {
+        session.synthesis = combined.text;
+        outcome.accounting.planning.push(combined.cost);
+      }
+    } catch {
+      // Synthesis is a convenience, not a gate. If it fails the per-subtask
+      // results are still shown; losing the combined view is not worth failing
+      // the whole run.
+    }
+
     await audit.append({
       event: 'report',
       planId: plan.id,
@@ -533,8 +587,12 @@ export class Pipeline {
   private async buildAdapters(): Promise<Map<AdapterId, ModelAdapter>> {
     const bins = adapterBins();
     const gauss = await this.gauss();
+    // Decide --bare from config + the effective env, so a Pro/Max subscription
+    // login (which --bare cannot use) works without the developer knowing why.
+    const env = { ...process.env, ...adapterEnv() };
+    const useBare = resolveBare(claudeBareMode(), env);
     return new Map<AdapterId, ModelAdapter>([
-      ['claude', new ClaudeAdapter(bins.claude, this.prices)],
+      ['claude', new ClaudeAdapter(bins.claude, this.prices, useBare)],
       ['codex', new CodexAdapter(bins.codex, this.prices)],
       ['gemini', new GeminiAdapter(bins.gemini, this.prices)],
       ['gauss', new GaussAdapter(gauss, Boolean(gaussConfig().baseUrl))],
@@ -597,6 +655,11 @@ function worstTierAmong(report: ScanReport, paths: string[]): Tier {
   return report.files
     .filter((file) => set.has(file.path))
     .reduce<Tier>((worst, file) => (TIER_RANK[file.tier] > TIER_RANK[worst] ? file.tier : worst), 'public');
+}
+
+/** Localhost endpoints are treated as keyless local stand-in models. */
+function isLocalEndpoint(baseUrl: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(baseUrl);
 }
 
 export function toAbortSignal(token: vscode.CancellationToken): AbortSignal {

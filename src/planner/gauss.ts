@@ -264,12 +264,16 @@ export class GaussClient {
       const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
       try {
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        // Send auth only when a key is set. A local stand-in model (Ollama,
+        // LM Studio) exposes an OpenAI-compatible endpoint with no key, and
+        // sending "Bearer undefined" would make some of them reject the request.
+        if (this.options.apiKey) {
+          headers.authorization = `Bearer ${this.options.apiKey}`;
+        }
         const response = await fetch(`${this.options.baseUrl}/chat/completions`, {
           method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${this.options.apiKey}`,
-          },
+          headers,
           body: JSON.stringify(body),
           signal: combined,
         });

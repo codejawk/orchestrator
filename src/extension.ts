@@ -5,6 +5,7 @@ import type { ProbeResult } from './exec/adapters/types.ts';
 import { registerChatParticipant } from './chat/participant.ts';
 import { Pipeline } from './pipeline.ts';
 import { applyEdit, previewEdit } from './workspace.ts';
+import { showSecurityMap } from './panel/SecurityMapPanel.ts';
 
 let output: vscode.LogOutputChannel;
 
@@ -24,6 +25,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('orchestrator.revokeApprovals', () => revokeApprovals(pipeline)),
     vscode.commands.registerCommand('orchestrator.verifyAudit', () => verifyAudit(pipeline)),
+    vscode.commands.registerCommand('orchestrator.precheckWorkspace', () => precheckWorkspace(pipeline)),
     vscode.commands.registerCommand('orchestrator.reviewEdits', (edits: ProposedEdit[]) => reviewEdits(edits)),
     registerChatParticipant(context, registry, pipeline),
   );
@@ -76,6 +78,14 @@ async function reviewEdits(edits: ProposedEdit[]): Promise<void> {
       await vscode.window.showWarningMessage(`Could not apply edit to ${edit.path}: ${result.reason}`);
     }
   }
+}
+
+async function precheckWorkspace(pipeline: Pipeline): Promise<void> {
+  const { entries, scannedCount } = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'Prechecking workspace security…' },
+    () => pipeline.precheck(),
+  );
+  showSecurityMap(entries, scannedCount);
 }
 
 async function verifyAudit(pipeline: Pipeline): Promise<void> {
