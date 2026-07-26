@@ -94,5 +94,18 @@ function render(ref: ContextRef, content: string, compression: CompressOptions):
 
   const compressed = compress(content, compression);
   const note = compressed.applied.length > 0 ? ` compressed="${compressed.applied.join(',')}"` : '';
+
+  // Hard safety cap. A file explicitly requested past the size limit could be
+  // multiple megabytes — sending it whole would blow the model's context. Keep
+  // the head (structure, imports, what the file is) and the tail, eliding the
+  // middle. For "explain what this file does" the head is what matters.
+  const MAX_FULL_CHARS = 120_000;
+  if (compressed.text.length > MAX_FULL_CHARS) {
+    const keep = Math.floor(MAX_FULL_CHARS / 2);
+    const elided = compressed.text.length - MAX_FULL_CHARS;
+    const body = `${compressed.text.slice(0, keep)}\n\n… [${elided.toLocaleString()} characters elided — file too large to send whole] …\n\n${compressed.text.slice(-keep)}`;
+    return `<file path="${ref.path}" mode="full" truncated="true"${note}>\n${body}\n</file>`;
+  }
+
   return `<file path="${ref.path}" mode="full"${note}>\n${compressed.text}\n</file>`;
 }

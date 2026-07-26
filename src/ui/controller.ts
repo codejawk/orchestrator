@@ -96,6 +96,16 @@ export class ConversationController {
         );
       }
 
+      // A file named in the prompt is read even if it exceeds the bulk size
+      // limit — an explicit request overrides the sweep's caution.
+      const forced = await this.pipeline.includeNamedFiles(session, session.guardedPrompt);
+      if (forced.length > 0) {
+        sink.markdown(
+          `Reading **${forced.length} file${forced.length === 1 ? '' : 's'}** you named directly, past the size limit: ` +
+            `${forced.map((p) => `\`${p}\``).join(', ')}. Large files are truncated when sent to a model.\n\n`,
+        );
+      }
+
       // Stage 2: clarify.
       sink.progress('Checking the request is clear enough to act on…');
       const intake = await this.pipeline.intake(session, token);

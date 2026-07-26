@@ -235,6 +235,71 @@ export class Pipeline {
     return { totalFiles: collected.files.length, restricted, skipped: collected.skipped };
   }
 
+  /**
+   * Reads files the user named in the prompt, even if they exceed the bulk size
+   * limit.
+   *
+   * The size cap exists to stop a broad sweep from slurping every giant data
+   * file — not to refuse a file the user explicitly asked about. When someone
+   * says "explain RA_2026_finder.html", that file must be read regardless of
+   * size. A generous hard ceiling still applies so a truly enormous file cannot
+   * exhaust memory, and binary files are still refused (reading a spreadsheet as
+   * text is useless). Very large files are truncated later, at context assembly,
+   * so this does not blow the model's context window.
+   */
+  async includeNamedFiles(session: OrchestratorSession, prompt: string): Promise<string[]> {
+    const root = workspaceRoot();
+    if (!root) {
+      return [];
+    }
+
+    // Filename-shaped tokens from the prompt: something.ext.
+    const candidates = new Set(
+      [...prompt.matchAll(/[\w./\\-]+\.[A-Za-z0-9]{1,8}\b/g)].map((m) => m[0].replace(/\\/g, '/')),
+    );
+    if (candidates.size === 0) {
+      return [];
+    }
+
+    const HARD_MAX = 25 * 1024 * 1024;
+    const included: string[] = [];
+    const rules = this.rules();
+
+    // Match named files against those the sweep skipped for size.
+    for (const skip of session.sweepSkipped) {
+      const base = skip.path.split('/').pop() ?? skip.path;
+      const named = [...candidates].some(
+        (c) => skip.path.endsWith(c) || c.endsWith(base) || (c.split('/').pop() ?? c) === base,
+      );
+      if (!named || session.files.some((file) => file.path === skip.path)) {
+        continue;
+      }
+      try {
+        const uri = vscode.Uri.joinPath(root, skip.path);
+        const stat = await vscode.workspace.fs.stat(uri);
+        if (stat.size > HARD_MAX) {
+          continue;
+        }
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        if (bytes.includes(0)) {
+          continue; // binary — not readable as text
+        }
+        const content = new TextDecoder().decode(bytes);
+        session.files.push({ path: skip.path, uri, content, bytes: stat.size });
+        const pre = prefilter(skip.path, content, rules);
+        session.sweep.set(skip.path, { tier: pre.tier, reasons: pre.reasons });
+        included.push(skip.path);
+      } catch {
+        // Unreadable; leave it in the skipped list.
+      }
+    }
+
+    if (included.length > 0) {
+      session.sweepSkipped = session.sweepSkipped.filter((s) => !included.includes(s.path));
+    }
+    return included;
+  }
+
   // -------------------------------------------------------------------------
   // Stage 2 — clarify
   // -------------------------------------------------------------------------
