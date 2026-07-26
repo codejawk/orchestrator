@@ -217,8 +217,9 @@ export class Pipeline {
     token?: vscode.CancellationToken,
   ): Promise<SweepResult> {
     const settings = scanConfig();
-    const collected = await collectFiles(folder, settings.maxFiles, token);
+    const collected = await collectFiles(folder, settings.maxFiles, settings.maxFileBytes, token);
     session.files = collected.files;
+    session.sweepSkipped = collected.skipped;
 
     const rules = this.rules();
     const restricted: string[] = [];
@@ -354,7 +355,7 @@ export class Pipeline {
     token?: vscode.CancellationToken,
   ): Promise<{ entries: PrecheckEntry[]; scannedCount: number }> {
     const settings = scanConfig();
-    const collected = await collectFiles(folder, settings.maxFiles, token);
+    const collected = await collectFiles(folder, settings.maxFiles, settings.maxFileBytes, token);
     const rules = this.rules();
 
     const entries: PrecheckEntry[] = collected.files.map((file) => {

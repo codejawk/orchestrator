@@ -29,7 +29,8 @@ const DEFAULT_EXCLUDE = [
 ].join(',');
 
 /** Bigger than this and a file is almost certainly generated or binary. */
-const MAX_FILE_BYTES = 512 * 1024;
+/** Default ceiling on a single file. Overridable via orchestrator.scan.maxFileBytes. */
+const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 export interface WorkspaceFile {
   path: string;
@@ -61,6 +62,7 @@ export function relativePath(uri: vscode.Uri): string {
 export async function collectFiles(
   folder?: vscode.Uri,
   maxFiles = 2_000,
+  maxBytes = DEFAULT_MAX_FILE_BYTES,
   token?: vscode.CancellationToken,
 ): Promise<CollectResult> {
   const root = folder ?? workspaceRoot();
@@ -81,8 +83,14 @@ export async function collectFiles(
     const path = relativePath(uri);
     try {
       const stat = await vscode.workspace.fs.stat(uri);
-      if (stat.size > MAX_FILE_BYTES) {
-        skipped.push({ path, reason: `larger than ${Math.round(MAX_FILE_BYTES / 1024)}KB` });
+      if (stat.size > maxBytes) {
+        // Named so the message can tell the user what to raise, and by how much:
+        // a huge generated/data file is exactly the thing you would not want fed
+        // to a model whole, but the user should still know it was skipped.
+        skipped.push({
+          path,
+          reason: `${(stat.size / 1024 / 1024).toFixed(1)}MB, over the ${(maxBytes / 1024 / 1024).toFixed(1)}MB limit (orchestrator.scan.maxFileBytes)`,
+        });
         continue;
       }
       const bytes = await vscode.workspace.fs.readFile(uri);

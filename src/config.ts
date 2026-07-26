@@ -86,6 +86,7 @@ export function budgetConfig(): { maxRunUsd: number } {
 
 export interface ScanConfig {
   maxFiles: number;
+  maxFileBytes: number;
   digestTokens: number;
   batchSize: number;
   contextBudgetTokens: number;
@@ -95,6 +96,7 @@ export function scanConfig(): ScanConfig {
   const c = config();
   return {
     maxFiles: c.get<number>('scan.maxFiles', 2_000),
+    maxFileBytes: c.get<number>('scan.maxFileBytes', 2 * 1024 * 1024),
     digestTokens: c.get<number>('scan.digestTokens', 400),
     batchSize: c.get<number>('scan.batchSize', 12),
     contextBudgetTokens: c.get<number>('context.budgetTokens', 30_000),

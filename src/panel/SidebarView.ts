@@ -47,8 +47,30 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
         case 'command':
           void vscode.commands.executeCommand(message.command, ...(message.arguments ?? []));
           break;
+        case 'ready':
+          this.postPlanner();
+          break;
       }
     });
+
+    // Keep the "planner not configured" banner in sync with settings, instead of
+    // baking it into the HTML once. Changing orchestrator.gauss.baseUrl updates
+    // it live, and it re-checks whenever the panel becomes visible again.
+    const cfgSub = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('orchestrator.gauss')) {
+        this.postPlanner();
+      }
+    });
+    view.onDidChangeVisibility(() => {
+      if (view.visible) {
+        this.postPlanner();
+      }
+    });
+    view.onDidDispose(() => cfgSub.dispose());
+  }
+
+  private postPlanner(): void {
+    this.post({ type: 'planner', configured: Boolean(gaussConfig().baseUrl) });
   }
 
   /** Focuses the view and can be called from a command. */
@@ -150,10 +172,6 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
 
   private html(webview: vscode.Webview): string {
     const cspNonce = nonce();
-    const gauss = gaussConfig();
-    const notice = gauss.baseUrl
-      ? ''
-      : `<div class="notice">Planner not configured. Set <code>orchestrator.gauss.baseUrl</code> (a local model on localhost needs no key) to begin.</div>`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -222,7 +240,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
     <button id="precheck" title="Scan the workspace security map">Precheck</button>
     <button id="new" title="Start a new conversation">New</button>
   </header>
-  ${notice}
+  <div id="planner-notice" class="notice" style="display:none">Planner not configured. Set <code>orchestrator.gauss.baseUrl</code> (a local model on localhost needs no key) to begin.</div>
   <div id="log"><div class="empty">Ask about your code. I plan on Gauss, route subtasks to the cheapest capable model, and never send anything you haven't approved.</div></div>
   <div id="progress"></div>
   <footer>
@@ -289,7 +307,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
     else if (m.type === 'progress') progress.textContent = m.text || '';
     else if (m.type === 'busy') setBusy(m.busy);
     else if (m.type === 'cleared') { log.innerHTML = '<div class="empty">New conversation. The workspace scan will run fresh.</div>'; assistantEl = null; }
+    else if (m.type === 'planner') { document.getElementById('planner-notice').style.display = m.configured ? 'none' : 'block'; }
   });
+  vscode.postMessage({ type: 'ready' });
   input.focus();
 </script>
 </body>
@@ -301,7 +321,8 @@ interface SendMessage { type: 'send'; text: string }
 interface NewMessage { type: 'new' }
 interface CancelMessage { type: 'cancel' }
 interface CommandMessage { type: 'command'; command: string; arguments?: unknown[] }
-type InboundMessage = SendMessage | NewMessage | CancelMessage | CommandMessage;
+interface ReadyMessage { type: 'ready' }
+type InboundMessage = SendMessage | NewMessage | CancelMessage | CommandMessage | ReadyMessage;
 
 type OutboundMessage =
   | { type: 'user'; html: string }
@@ -309,7 +330,8 @@ type OutboundMessage =
   | { type: 'button'; command: string; title: string; arguments?: unknown[] }
   | { type: 'progress'; text: string }
   | { type: 'busy'; busy: boolean }
-  | { type: 'cleared' };
+  | { type: 'cleared' }
+  | { type: 'planner'; configured: boolean };
 
 const GAUSS_SETUP =
   'The planner is not configured, so I cannot plan.\n\n' +

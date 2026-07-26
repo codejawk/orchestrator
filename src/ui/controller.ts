@@ -129,12 +129,27 @@ export class ConversationController {
     );
 
     if (report.files.length === 0) {
-      sink.markdown(
-        'No files were selected as relevant. Try naming the module or file you mean.\n\n' +
-          (excludedBySweep.length > 0
-            ? `_${excludedBySweep.length} file(s) were excluded by the restricted-pattern sweep and were never offered to the selector._`
-            : ''),
-      );
+      sink.markdown('No files were selected as relevant.\n\n');
+
+      // The most common real cause: the file the user means was skipped for size
+      // before the selector ever saw it. Say so, with the fix.
+      const bySize = session.sweepSkipped.filter((s) => /over the .* limit/.test(s.reason));
+      if (bySize.length > 0) {
+        sink.markdown(
+          `**${bySize.length} file(s) were skipped for being too large** and never reached the selector:\n\n` +
+            bySize.slice(0, 6).map((s) => `- \`${s.path}\` — ${s.reason}`).join('\n') +
+            '\n\nRaise `orchestrator.scan.maxFileBytes` in Settings to include them. ' +
+            'Note a very large file is a lot of tokens, so it will be skeletonized when sent to a model.\n\n',
+        );
+      } else {
+        sink.markdown('Try naming the specific module or file you mean.\n\n');
+      }
+
+      if (excludedBySweep.length > 0) {
+        sink.markdown(
+          `_${excludedBySweep.length} file(s) were excluded by the restricted-pattern sweep and were never offered to the selector._`,
+        );
+      }
       return;
     }
 

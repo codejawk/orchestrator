@@ -176,6 +176,11 @@
           "default": 2000,
           "description": "Maximum files collected per scan."
         },
+        "orchestrator.scan.maxFileBytes": {
+          "type": "number",
+          "default": 2097152,
+          "markdownDescription": "Largest single file (in bytes) the tool will read. Files above this are skipped and reported. Default 2 MB. Raise it if you work with large generated or data files — but note a very large file is many tokens, so it will be skeletonized or truncated when sent to a model."
+        },
         "orchestrator.scan.digestTokens": {
           "type": "number",
           "default": 400,

@@ -46,6 +46,8 @@ export class OrchestratorSession {
   redactions: Redaction[] = [];
   /** Prior exchanges, oldest first. Fed to the compiler as a compact summary. */
   turns: ConversationTurn[] = [];
+  /** Files the sweep could not read (too large, binary), for honest messaging. */
+  sweepSkipped: { path: string; reason: string }[] = [];
 
   // -- Per-turn state (reset by startTurn) ----------------------------------
   originalPrompt = '';
