@@ -100,7 +100,7 @@ function renderBody(
       <div><div class="k">to external models</div><div class="v">${externalCount}</div></div>
       <div><div class="k">pinned to Gauss</div><div class="v">${pinned.length}</div></div>
       <div><div class="k">forecast cost</div><div class="v">${esc(formatUsd(plan.estimate.usd))}</div></div>
-      <div><div class="k">prompt compressed</div><div class="v">${ratio}%</div></div>
+      ${ratio > 5 ? `<div><div class="k">prompt compressed</div><div class="v">${ratio}%</div></div>` : ''}
     </div>
 
     ${

@@ -19,8 +19,10 @@ const DECOMPOSE_SYSTEM = `You split a coding task into subtasks that can be assi
 
 Rules:
 - Produce between 1 and 6 subtasks. Prefer fewer. One subtask is a perfectly good answer for a focused task.
-- Each subtask must be independently checkable and must name which files it touches.
-- Set dependsOn only for real ordering constraints. Anything independent should run in parallel.
+- If the task is to write new, standalone code that does not depend on existing files (e.g. "write a binary search function"), produce ONE subtask and reference NO files. Do NOT add a separate "inspect" or "read the existing file" subtask — self-contained generation needs no file to read.
+- Only reference a file if the subtask genuinely must read or change that specific file. Never invent a dependency on an unrelated file.
+- Each subtask must be independently checkable.
+- Set dependsOn only for real ordering constraints. Anything independent should run in parallel. Do not make a "provide code" subtask depend on an "inspect" subtask unless the code truly cannot be written without reading that file first.
 - Mark difficulty honestly:
   - "mechanical": pattern-following with no real design choice — renames, boilerplate, docstrings, straightforward tests.
   - "standard": ordinary implementation work requiring care but no deep reasoning.
@@ -129,13 +131,16 @@ export async function decompose(
 
   const ids = new Set(result.data.subtasks.map((s) => s.id));
   const drafts: DraftSubtask[] = result.data.subtasks.map((raw) => {
+    // The planner often echoes an absolute path (/Users/…/hello.c) while the
+    // context is keyed by the workspace-relative path (hello.c). Resolve by
+    // suffix/basename so a named file is not wrongly "dropped".
     const context = raw.paths
-      .map((path) => available.get(path))
+      .map((path) => resolvePath(path, available))
       .filter((ref): ref is ContextRef => ref !== undefined);
 
-    if (context.length < raw.paths.length) {
-      const unknown = raw.paths.filter((path) => !available.has(path));
-      warnings.push(`Subtask "${raw.id}" named files outside the selected context: ${unknown.join(', ')}. Dropped.`);
+    const unresolved = raw.paths.filter((path) => resolvePath(path, available) === undefined);
+    if (unresolved.length > 0) {
+      warnings.push(`Subtask "${raw.id}" named files not in the selected context: ${unresolved.join(', ')}. Dropped.`);
     }
 
     return {
@@ -166,6 +171,32 @@ interface RawSubtask {
   difficulty: Difficulty;
   paths: string[];
   dependsOn: string[];
+}
+
+/**
+ * Resolves a path the planner named against the actually-available context.
+ *
+ * Tolerates the common mismatch where the model returns an absolute path but
+ * the context is keyed by the workspace-relative one (or vice versa), matching
+ * on a path suffix and finally on basename.
+ */
+export function resolvePath(named: string, available: Map<string, ContextRef>): ContextRef | undefined {
+  const norm = named.replace(/\\/g, '/');
+  const direct = available.get(norm);
+  if (direct) {
+    return direct;
+  }
+  const base = norm.split('/').pop() ?? norm;
+  let basenameHit: ContextRef | undefined;
+  for (const [key, ref] of available) {
+    if (norm.endsWith(key) || key.endsWith(norm)) {
+      return ref; // suffix match is strong — prefer it
+    }
+    if ((key.split('/').pop() ?? key) === base) {
+      basenameHit = ref;
+    }
+  }
+  return basenameHit;
 }
 
 /**

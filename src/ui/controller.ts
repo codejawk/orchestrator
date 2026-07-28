@@ -218,10 +218,14 @@ export class ConversationController {
       sink.markdown('Planning produced no subtasks. Try rephrasing the request.');
       return;
     }
+    // Compression is only meaningful when the input was large enough to compress.
+    // For a short request the compiled spec is naturally longer, so a negative
+    // "compression" is noise — don't show it.
     const compressed = Math.round((1 - compression.after / Math.max(1, compression.before)) * 100);
+    const compressNote = compressed > 5 ? `, prompt compressed ${compressed}%` : '';
     sink.markdown(
-      `Planned **${plan.subtasks.length} subtask${plan.subtasks.length === 1 ? '' : 's'}**, ` +
-        `prompt compressed ${compressed}%, forecast ${formatUsd(plan.estimate.usd)}.\n\n`,
+      `Planned **${plan.subtasks.length} subtask${plan.subtasks.length === 1 ? '' : 's'}**${compressNote}, ` +
+        `forecast ${formatUsd(plan.estimate.usd)}.\n\n`,
     );
 
     // Stage 7: approve.

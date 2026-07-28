@@ -2,14 +2,14 @@ import { strict as assert } from 'node:assert';
 import { describe, test } from 'node:test';
 import { buildDigest, scanFiles, type FileVerdict } from '../src/planner/scanner.ts';
 import { extractJson, type GaussClient } from '../src/planner/gauss.ts';
-import { findCycle, topologicalWaves } from '../src/planner/decompose.ts';
+import { findCycle, topologicalWaves, resolvePath } from '../src/planner/decompose.ts';
 import { renderIR } from '../src/planner/compiler.ts';
 import { compress, dedupeBlocks, stripCommentsPreservingStrings } from '../src/optimize/compress.ts';
 import { skeletonFromSymbols, skeletonFromText, sliceRange } from '../src/optimize/skeleton.ts';
 import { policyFor, scaleCap, extractEdits } from '../src/optimize/outputPolicy.ts';
 import { materializeContext } from '../src/exec/context.ts';
 import { RunLedger } from '../src/exec/ledger.ts';
-import type { PromptIR, Subtask } from '../src/types/ir.ts';
+import type { ContextRef, PromptIR, Subtask } from '../src/types/ir.ts';
 
 /**
  * A fake Gauss. Scans and plans must be testable without a model endpoint,
@@ -515,3 +515,21 @@ function commonPrefix(a: string, b: string): string {
   }
   return a.slice(0, i);
 }
+
+describe('resolvePath (planner path normalization)', () => {
+  const ctx = (path: string): ContextRef => ({ path, mode: 'full', estTokens: 10 });
+  const available = new Map([['hello.c', ctx('hello.c')], ['src/util.c', ctx('src/util.c')]]);
+
+  test('matches an absolute path the planner echoed against relative context', () => {
+    assert.equal(resolvePath('/Users/md/Learn/C_Language/hello.c', available)?.path, 'hello.c');
+  });
+  test('matches an exact relative path', () => {
+    assert.equal(resolvePath('src/util.c', available)?.path, 'src/util.c');
+  });
+  test('matches on basename when no suffix match', () => {
+    assert.equal(resolvePath('/elsewhere/util.c', available)?.path, 'src/util.c');
+  });
+  test('returns undefined for a genuinely absent file', () => {
+    assert.equal(resolvePath('nonexistent.py', available), undefined);
+  });
+});
