@@ -131,6 +131,14 @@ export class ClaudeAdapter implements ModelAdapter {
     }
 
     const ok = result.code === 0 && !result.timedOut;
+    // On failure, surface whatever Claude actually said. The real error is often
+    // in stdout (an is_error JSON with a message), not stderr — reporting only
+    // "exited with code N" hides it.
+    const errorDetail =
+      extractClaudeError(result.stdout) ||
+      result.stderr.slice(0, 1_000) ||
+      result.stdout.slice(0, 1_000) ||
+      `exited with code ${result.code}`;
     return {
       ok,
       text,
@@ -139,13 +147,22 @@ export class ClaudeAdapter implements ModelAdapter {
       ...(meter.sessionId ? { sessionId: meter.sessionId } : {}),
       warnings,
       ...(ok ? {} : {
-        error: result.stderr.slice(0, 1_000) || `exited with code ${result.code}`,
+        error: errorDetail,
         // A timeout is an availability failure and trips the breaker; a
         // non-zero exit is the model or CLI rejecting the work, which does not.
         failureKind: (result.timedOut ? 'infra' : 'model') as 'infra' | 'model',
       }),
     };
   }
+}
+
+/** Pulls a human-readable error out of Claude's JSON result, when present. */
+function extractClaudeError(stdout: string): string | undefined {
+  const parsed = extractJson<{ is_error?: boolean; subtype?: string; result?: string; error?: string }>(stdout);
+  if (parsed.ok && parsed.value.is_error) {
+    return parsed.value.error || parsed.value.result || `claude error: ${parsed.value.subtype ?? 'unknown'}`;
+  }
+  return undefined;
 }
 
 export function failure(

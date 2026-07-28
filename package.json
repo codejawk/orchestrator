@@ -2,7 +2,7 @@
   "name": "orchestrator",
   "displayName": "Orchestrator",
   "description": "Plans on Gauss, executes across Claude, Codex and Gemini, and reports what it saved.",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "publisher": "codejawk",
   "private": true,
   "license": "UNLICENSED",

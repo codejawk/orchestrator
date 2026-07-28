@@ -46,6 +46,7 @@ import {
   GAUSS_KEY_SECRET,
 } from './config.ts';
 import { CliPlanner } from './exec/cliPlanner.ts';
+import { resolveShellEnv } from './exec/shellEnv.ts';
 
 const AUDIT_LOG_KEY = 'orchestrator.audit.v1';
 import {
@@ -150,6 +151,15 @@ export class Pipeline {
   }
 
   /**
+   * The environment every spawned CLI gets: the extension host's own env, then
+   * the developer's real login-shell env (so credentials resolve when VS Code
+   * was launched from the Dock), then explicit user overrides.
+   */
+  private async spawnEnv(): Promise<NodeJS.ProcessEnv> {
+    return { ...process.env, ...(await resolveShellEnv()), ...adapterEnv() };
+  }
+
+  /**
    * The planner for this run.
    *
    * Either an HTTP client (internal Gauss / local Ollama) or a CLI-backed
@@ -171,7 +181,7 @@ export class Pipeline {
         adapter,
         model: chosen,
         cwd: root?.fsPath ?? process.cwd(),
-        env: { ...process.env, ...adapterEnv() },
+        env: await this.spawnEnv(),
       });
       return this.gaussClient;
     }
@@ -766,9 +776,9 @@ export class Pipeline {
       read: createFileReader(),
       cwd: root.fsPath,
       gaussOnlyPaths: gaussOnly,
-      // Extension host env plus the overrides, so a key exported in a shell
-      // profile the host never loaded can still reach the CLI.
-      env: { ...process.env, ...adapterEnv() },
+      // The developer's real login-shell env, so CLIs launched from a
+      // Dock-started VS Code can still reach their stored credentials.
+      env: await this.spawnEnv(),
       // Every external dispatch re-scans its serialized payload here.
       egress: new EgressGuard({ rules: this.rules() }),
       audit,
