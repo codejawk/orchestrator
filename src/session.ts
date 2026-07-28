@@ -56,6 +56,8 @@ export class OrchestratorSession {
   intake?: IntakeOutcome;
   answers: ClarificationAnswer[] = [];
   selectedRefs?: ContextRef[];
+  /** Files named directly in the prompt, always force-included in selection. */
+  pinnedPaths: string[] = [];
   scan?: ScanReport;
   plan?: ExecutionPlan;
   outcome?: ExecutionOutcome;
@@ -82,6 +84,7 @@ export class OrchestratorSession {
     this.intake = undefined;
     this.answers = [];
     this.selectedRefs = undefined;
+    this.pinnedPaths = [];
     this.scan = undefined;
     this.plan = undefined;
     this.outcome = undefined;

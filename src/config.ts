@@ -84,6 +84,20 @@ export function budgetConfig(): { maxRunUsd: number } {
   return { maxRunUsd: config().get<number>('budget.maxRunUsd', 0) };
 }
 
+/**
+ * Whether the data-classification layer is active.
+ *
+ * On (default): files are classified, a review gate stands between the
+ * workspace and any external model, and sensitive content is pinned to the
+ * planner. Off: the pipeline is pure orchestration — clarify, optimize,
+ * decompose, route, execute — with every selected file free to go to the best
+ * model. Turn it off on a personal machine with no sensitive code; keep it on
+ * anywhere Samsung-confidential material could be present.
+ */
+export function securityEnabled(): boolean {
+  return config().get<boolean>('security.enabled', true);
+}
+
 export interface ScanConfig {
   maxFiles: number;
   maxFileBytes: number;

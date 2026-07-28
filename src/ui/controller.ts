@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { policyConfig } from '../config.ts';
+import { policyConfig, securityEnabled } from '../config.ts';
 import { OrchestratorSession, Pipeline } from '../pipeline.ts';
 import { showReviewPanel } from '../panel/ReviewPanel.ts';
 import { showPlanPanel } from '../panel/PlanPanel.ts';
@@ -170,7 +170,10 @@ export class ConversationController {
     );
 
     // Stage 5: review.
-    if (session.taint.isTainted) {
+    if (!securityEnabled()) {
+      // Pure-orchestration mode: no classification, no review gate.
+      sink.markdown('_Security checks are off — routing directly to the best model per subtask._\n\n');
+    } else if (session.taint.isTainted) {
       sink.markdown(
         `> **This run is pinned to Gauss.** ${session.taint.explanation}\n\n` +
           'No file review is needed — nothing is going to an external model either way.\n\n',

@@ -39,6 +39,7 @@ import {
   priceOverrides,
   resolveBare,
   scanConfig,
+  securityEnabled,
   AUDIT_SALT_SECRET,
   GAUSS_KEY_SECRET,
 } from './config.ts';
@@ -197,7 +198,11 @@ export class Pipeline {
     // map so reveal() still restores identifiers from earlier turns.
     session.redactions.push(...assessment.redaction.redactions);
     session.assessment = assessment;
-    session.taint.absorb(assessment);
+    // Tainting is a security behaviour; with security off, a request is never
+    // pinned to the planner and everything routes to the best model.
+    if (securityEnabled()) {
+      session.taint.absorb(assessment);
+    }
 
     return assessment;
   }
@@ -257,6 +262,18 @@ export class Pipeline {
     const candidates = new Set(
       [...prompt.matchAll(/[\w./\\-]+\.[A-Za-z0-9]{1,8}\b/g)].map((m) => m[0].replace(/\\/g, '/')),
     );
+    const matchesNamed = (path: string): boolean => {
+      const base = path.split('/').pop() ?? path;
+      return [...candidates].some(
+        (c) => path.endsWith(c) || c.endsWith(base) || (c.split('/').pop() ?? c) === base,
+      );
+    };
+
+    // Pin every already-read file the prompt names, so selection always keeps
+    // it even if the model selector overlooks it. Oversized named files are read
+    // in below and pinned there.
+    session.pinnedPaths = session.files.filter((file) => matchesNamed(file.path)).map((file) => file.path);
+
     if (candidates.size === 0) {
       return [];
     }
@@ -289,6 +306,9 @@ export class Pipeline {
         const pre = prefilter(skip.path, content, rules);
         session.sweep.set(skip.path, { tier: pre.tier, reasons: pre.reasons });
         included.push(skip.path);
+        if (!session.pinnedPaths.includes(skip.path)) {
+          session.pinnedPaths.push(skip.path);
+        }
       } catch {
         // Unreadable; leave it in the skipped list.
       }
@@ -342,9 +362,13 @@ export class Pipeline {
     const settings = scanConfig();
     const warnings: string[] = [];
 
-    const excludedBySweep = session.files
-      .filter((file) => session.sweep.get(file.path)?.tier === 'restricted')
-      .map((file) => file.path);
+    const secure = securityEnabled();
+
+    // With security on, the sweep's restricted files are kept out of candidacy.
+    // With it off, nothing is excluded — the flow is pure orchestration.
+    const excludedBySweep = secure
+      ? session.files.filter((file) => session.sweep.get(file.path)?.tier === 'restricted').map((file) => file.path)
+      : [];
     const excluded = new Set(excludedBySweep);
     const eligible = session.files.filter((file) => !excluded.has(file.path));
 
@@ -359,8 +383,44 @@ export class Pipeline {
     });
     warnings.push(...selection.warnings);
 
-    const selectedPaths = new Set(selection.refs.map((ref) => ref.path));
-    session.selectedRefs = selection.refs;
+    // Force-include any file the user named in the prompt, as full content. The
+    // selector is a model and can miss the obvious; an explicit "explain X" must
+    // never fall through to "no files selected".
+    const refs = [...selection.refs];
+    const already = new Set(refs.map((ref) => ref.path));
+    for (const path of session.pinnedPaths) {
+      if (!already.has(path) && session.files.some((file) => file.path === path)) {
+        const file = session.files.find((f) => f.path === path)!;
+        refs.push({ path, mode: 'full', estTokens: estimateTokens(file.content, 'code'), rationale: 'named in the request' });
+        already.add(path);
+      }
+    }
+
+    const selectedPaths = new Set(refs.map((ref) => ref.path));
+    session.selectedRefs = refs;
+
+    // Security off: skip per-file classification and the review gate entirely.
+    // Every selected file is treated as shareable and routed to the best model.
+    if (!secure) {
+      const report: ScanReport = {
+        scannedAt: new Date().toISOString(),
+        files: session.files
+          .filter((file) => selectedPaths.has(file.path))
+          .map((file) => ({
+            path: file.path,
+            contentHash: '',
+            tier: 'internal' as const,
+            reasons: [],
+            source: 'unscanned' as const,
+            estTokens: estimateTokens(file.content, 'code'),
+          })),
+        skipped: [],
+        costs: [],
+        warnings: [],
+      };
+      session.scan = report;
+      return { report, excludedBySweep, warnings };
+    }
 
     progress?.(`Classifying ${selectedPaths.size} selected file${selectedPaths.size === 1 ? '' : 's'}…`);
 
@@ -516,6 +576,10 @@ export class Pipeline {
   }
 
   gaussOnlyPaths(report: ScanReport): Set<string> {
+    // Security off: nothing is held back, so every file may go to any model.
+    if (!securityEnabled()) {
+      return new Set();
+    }
     const { gaussOnly } = partitionByRouting(report.files, this.approvals);
     return new Set(gaussOnly.map((routing) => routing.path));
   }
@@ -530,6 +594,10 @@ export class Pipeline {
    * pending, because it must be re-reviewed.
    */
   pendingReview(report: ScanReport): FileVerdict[] {
+    // Security off: no review gate — everything is cleared for external models.
+    if (!securityEnabled()) {
+      return [];
+    }
     return report.files.filter((file) => {
       if (TIER_RANK[file.tier] >= TIER_RANK.restricted) {
         return false;

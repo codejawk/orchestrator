@@ -2,7 +2,7 @@
   "name": "orchestrator",
   "displayName": "Orchestrator",
   "description": "Plans on Gauss, executes across Claude, Codex and Gemini, and reports what it saved.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "codejawk",
   "private": true,
   "license": "UNLICENSED",
@@ -106,10 +106,15 @@
     "configuration": {
       "title": "Orchestrator",
       "properties": {
+        "orchestrator.security.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Enable the data-classification layer.\n\n**On** (default): every file is classified, a review gate stands between your workspace and any external model, and sensitive content is pinned to the planner. Keep this on where Samsung-confidential material could be present.\n\n**Off**: pure orchestration — clarify → optimize → decompose → route → execute — with every selected file free to go to the best model. No review panels, no 'pinned to Gauss'. Use this on a personal machine with no sensitive code."
+        },
         "orchestrator.gauss.baseUrl": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Base URL of the internal Gauss API. All planning traffic goes here and nowhere else."
+          "markdownDescription": "Base URL of the planner (internal Gauss, or a local stand-in). All planning traffic goes here and nowhere else."
         },
         "orchestrator.gauss.model": {
           "type": "string",
