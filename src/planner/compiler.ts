@@ -1,6 +1,6 @@
 import type { Classification, ContextRef, PromptIR } from '../types/ir.ts';
 import { estimateTokens } from '../optimize/tokens.ts';
-import type { GaussClient } from './gauss.ts';
+import type { Planner } from './gauss.ts';
 
 /**
  * The prompt compiler.
@@ -61,7 +61,7 @@ export async function compilePrompt(
   mergedPrompt: string,
   context: ContextRef[],
   classification: Classification,
-  gauss: GaussClient,
+  gauss: Planner,
   signal?: AbortSignal,
 ): Promise<CompileResult> {
   const warnings: string[] = [];

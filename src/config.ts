@@ -42,6 +42,38 @@ export function claudeBareMode(): import('./exec/bareAuth.ts').BareMode {
   return config().get('adapters.claude.bare', 'auto');
 }
 
+export type PlannerProvider = 'http' | 'claude' | 'codex' | 'gemini';
+
+/**
+ * Which model does the planning (clarify, select, compile, decompose,
+ * synthesize). `http` is the OpenAI-compatible endpoint in `gauss.baseUrl`
+ * (internal Gauss, or a local Ollama stand-in). The others run planning on the
+ * developer's own CLI account — far better quality than a small local model.
+ */
+export function plannerConfig(): { provider: PlannerProvider; model: string } {
+  const c = config();
+  return {
+    provider: c.get<PlannerProvider>('planner.provider', 'http'),
+    model: c.get<string>('planner.model', '').trim(),
+  };
+}
+
+/** Sensible default planner model per provider when none is configured. */
+export function defaultPlannerModel(provider: PlannerProvider): string {
+  switch (provider) {
+    case 'claude':
+      return 'sonnet';
+    case 'codex':
+      // Sentinel: let Codex use the account's own model. A ChatGPT-subscription
+      // account does not accept arbitrary model names.
+      return 'default';
+    case 'gemini':
+      return 'gemini-2.5-flash';
+    case 'http':
+      return gaussConfig().model;
+  }
+}
+
 export interface GaussConfig {
   baseUrl: string;
   model: string;

@@ -50,6 +50,22 @@ export interface GaussResult<T = unknown> {
   warnings: string[];
 }
 
+/**
+ * What the planner stages need from whatever model does the planning.
+ *
+ * `GaussClient` (an OpenAI-compatible HTTP endpoint — internal Gauss, or a
+ * local Ollama stand-in) implements this. So does the CLI-backed planner, which
+ * runs planning on the developer's own Claude/Codex/Gemini account. Because the
+ * planner stages depend only on this interface, they never import a model
+ * adapter — the isolation invariant holds regardless of which backend plans.
+ */
+export interface Planner {
+  readonly model: string;
+  readonly costs: CostRecord[];
+  totalUsd(): number;
+  complete<T = unknown>(request: GaussRequest): Promise<GaussResult<T>>;
+}
+
 export class GaussError extends Error {
   readonly status?: number;
   readonly body?: string;
@@ -65,7 +81,7 @@ export class GaussError extends Error {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RETRIES = 2;
 
-export class GaussClient {
+export class GaussClient implements Planner {
   private format: ResponseFormatMode;
   /** Cost of every call this client has made, for the run accounting. */
   readonly costs: CostRecord[] = [];

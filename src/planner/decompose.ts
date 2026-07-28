@@ -1,5 +1,5 @@
 import type { ContextRef, PromptIR, SubtaskKind } from '../types/ir.ts';
-import type { GaussClient } from './gauss.ts';
+import type { Planner } from './gauss.ts';
 
 /**
  * Decomposition: splitting one request into subtasks that different models can
@@ -80,7 +80,7 @@ export interface DecomposeResult {
 
 export async function decompose(
   ir: PromptIR,
-  gauss: GaussClient,
+  gauss: Planner,
   signal?: AbortSignal,
 ): Promise<DecomposeResult> {
   const warnings: string[] = [];

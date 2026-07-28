@@ -3,7 +3,7 @@ import type { ClassificationReason, CostRecord, Tier } from '../types/ir.ts';
 import { TIER_RANK } from '../types/ir.ts';
 import { estimateFileTokens, estimateTokens } from '../optimize/tokens.ts';
 import { prefilter, type PatternRule } from '../policy/patterns.ts';
-import type { GaussClient } from './gauss.ts';
+import type { Planner } from './gauss.ts';
 
 /**
  * The sensitivity scan.
@@ -195,7 +195,7 @@ interface GaussFileVerdict {
 
 export async function scanFiles(
   inputs: ScanInput[],
-  gauss: GaussClient,
+  gauss: Planner,
   options: ScanOptions = {},
 ): Promise<ScanReport> {
   const rules = options.rules;

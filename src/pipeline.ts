@@ -4,7 +4,7 @@ import { TIER_RANK } from './types/ir.ts';
 import { PriceTable } from './accounting/pricing.ts';
 import { buildSavingsReport, fitCalibration, modelBaseline, type CalibrationSample } from './accounting/baseline.ts';
 import { sumUsage } from './accounting/meter.ts';
-import { GaussClient } from './planner/gauss.ts';
+import { GaussClient, type Planner } from './planner/gauss.ts';
 import { analyzeIntake, mergeAnswers, type ClarificationAnswer, type IntakeOutcome } from './planner/intake.ts';
 import { scanFiles, type FileVerdict, type ScanReport } from './planner/scanner.ts';
 import { selectContext, type CandidateFile } from './planner/contextSelector.ts';
@@ -34,7 +34,9 @@ import {
   baselineConfig,
   budgetConfig,
   claudeBareMode,
+  defaultPlannerModel,
   gaussConfig,
+  plannerConfig,
   policyConfig,
   priceOverrides,
   resolveBare,
@@ -43,6 +45,7 @@ import {
   AUDIT_SALT_SECRET,
   GAUSS_KEY_SECRET,
 } from './config.ts';
+import { CliPlanner } from './exec/cliPlanner.ts';
 
 const AUDIT_LOG_KEY = 'orchestrator.audit.v1';
 import {
@@ -93,7 +96,7 @@ export class Pipeline {
   private readonly registry: AdapterRegistry;
   private readonly prices: PriceTable;
   readonly approvals: ApprovalStore;
-  private gaussClient?: GaussClient;
+  private gaussClient?: Planner;
   private auditLog?: AuditLog;
 
   constructor(context: vscode.ExtensionContext, registry: AdapterRegistry) {
@@ -146,14 +149,37 @@ export class Pipeline {
     return rules;
   }
 
-  private async gauss(): Promise<GaussClient> {
+  /**
+   * The planner for this run.
+   *
+   * Either an HTTP client (internal Gauss / local Ollama) or a CLI-backed
+   * planner running on the developer's own Claude/Codex/Gemini account,
+   * depending on `orchestrator.planner.provider`.
+   */
+  private async gauss(): Promise<Planner> {
     if (this.gaussClient) {
       return this.gaussClient;
     }
+    const { provider, model } = plannerConfig();
+
+    if (provider !== 'http') {
+      // Planning on the developer's own CLI account.
+      const chosen = model || defaultPlannerModel(provider);
+      const adapter = this.buildAdapter(provider);
+      const root = workspaceRoot();
+      this.gaussClient = new CliPlanner({
+        adapter,
+        model: chosen,
+        cwd: root?.fsPath ?? process.cwd(),
+        env: { ...process.env, ...adapterEnv() },
+      });
+      return this.gaussClient;
+    }
+
     const config = gaussConfig();
     if (!config.baseUrl) {
       throw new Error(
-        'orchestrator.gauss.baseUrl is not set. Planning runs only on Gauss, so nothing can proceed without it.',
+        'No planner configured. Set orchestrator.planner.provider to claude/codex/gemini to plan on your own account, or set orchestrator.gauss.baseUrl for an HTTP planner.',
       );
     }
     const apiKey = (await this.context.secrets.get(GAUSS_KEY_SECRET)) ?? '';
@@ -173,7 +199,20 @@ export class Pipeline {
     return this.gaussClient;
   }
 
-  /** New client per run, so planning cost is attributed to that run alone. */
+  /** Builds one execution adapter by id, for the CLI-backed planner. */
+  private buildAdapter(id: 'claude' | 'codex' | 'gemini'): ModelAdapter {
+    const bins = adapterBins();
+    switch (id) {
+      case 'claude':
+        return new ClaudeAdapter(bins.claude, this.prices, resolveBare(claudeBareMode(), { ...process.env, ...adapterEnv() }));
+      case 'codex':
+        return new CodexAdapter(bins.codex, this.prices);
+      case 'gemini':
+        return new GeminiAdapter(bins.gemini, this.prices);
+    }
+  }
+
+  /** New planner per run, so planning cost is attributed to that run alone. */
   resetGauss(): void {
     this.gaussClient = undefined;
   }
@@ -839,7 +878,7 @@ export class Pipeline {
   }
 }
 
-function aggregateCost(gauss: GaussClient) {
+function aggregateCost(gauss: Planner) {
   return {
     adapter: 'gauss' as const,
     model: gauss.model,

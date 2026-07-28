@@ -1,5 +1,5 @@
 import type { ContextRef } from '../types/ir.ts';
-import type { GaussClient } from './gauss.ts';
+import type { Planner } from './gauss.ts';
 
 /**
  * Context selection: deciding what the executing model gets to see.
@@ -94,7 +94,7 @@ const DEFAULT_BUDGET_TOKENS = 30_000;
 export async function selectContext(
   goal: string,
   candidates: CandidateFile[],
-  gauss: GaussClient,
+  gauss: Planner,
   options: SelectOptions = {},
 ): Promise<SelectionResult> {
   const budget = options.budgetTokens ?? DEFAULT_BUDGET_TOKENS;

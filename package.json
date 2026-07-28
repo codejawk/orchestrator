@@ -2,7 +2,7 @@
   "name": "orchestrator",
   "displayName": "Orchestrator",
   "description": "Plans on Gauss, executes across Claude, Codex and Gemini, and reports what it saved.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "codejawk",
   "private": true,
   "license": "UNLICENSED",
@@ -111,10 +111,21 @@
           "default": true,
           "markdownDescription": "Enable the data-classification layer.\n\n**On** (default): every file is classified, a review gate stands between your workspace and any external model, and sensitive content is pinned to the planner. Keep this on where Samsung-confidential material could be present.\n\n**Off**: pure orchestration — clarify → optimize → decompose → route → execute — with every selected file free to go to the best model. No review panels, no 'pinned to Gauss'. Use this on a personal machine with no sensitive code."
         },
+        "orchestrator.planner.provider": {
+          "type": "string",
+          "enum": ["http", "claude", "codex", "gemini"],
+          "default": "http",
+          "markdownDescription": "Which model does the **planning** (clarify, select relevant files, compile the prompt, decompose into subtasks, synthesize the answer).\n\n- `http`: an OpenAI-compatible endpoint set in `orchestrator.gauss.baseUrl` — internal Gauss, or a local Ollama stand-in.\n- `claude` / `codex` / `gemini`: run planning on your own CLI account. Far better quality than a small local model. Each planning call spawns the CLI and, on a subscription, counts against your usage.\n\nExecution (running the subtasks) always uses the CLIs regardless of this setting."
+        },
+        "orchestrator.planner.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Model for the planner when `provider` is claude/codex/gemini. Blank uses a sensible default per provider (`sonnet`, `gpt-5`, `gemini-2.5-flash`). A mid-tier model is usually the right choice — planning is judgement over short text, not heavy generation."
+        },
         "orchestrator.gauss.baseUrl": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Base URL of the planner (internal Gauss, or a local stand-in). All planning traffic goes here and nowhere else."
+          "markdownDescription": "Base URL of the HTTP planner (internal Gauss, or a local stand-in), used when `orchestrator.planner.provider` is `http`."
         },
         "orchestrator.gauss.model": {
           "type": "string",

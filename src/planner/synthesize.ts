@@ -1,5 +1,5 @@
 import type { CostRecord, Ledger, PromptIR } from '../types/ir.ts';
-import type { GaussClient } from './gauss.ts';
+import type { Planner } from './gauss.ts';
 
 /**
  * The combine step — your step 6, "the orchestrator combines and gives the
@@ -34,7 +34,7 @@ export interface SynthesisResult {
 export async function synthesize(
   ir: PromptIR,
   ledger: Ledger,
-  gauss: GaussClient,
+  gauss: Planner,
   signal?: AbortSignal,
 ): Promise<SynthesisResult | undefined> {
   const entries = ledger.entries.filter((entry) => entry.summary.trim().length > 0);

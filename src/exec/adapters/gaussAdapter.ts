@@ -1,4 +1,4 @@
-import type { GaussClient } from '../../planner/gauss.ts';
+import type { Planner } from '../../planner/gauss.ts';
 import type { ModelAdapter, ProbeResult, RunRequest, RunResult } from './types.ts';
 
 /**
@@ -17,10 +17,10 @@ import type { ModelAdapter, ProbeResult, RunRequest, RunResult } from './types.t
 export class GaussAdapter implements ModelAdapter {
   readonly id = 'gauss' as const;
 
-  private readonly client: GaussClient;
+  private readonly client: Planner;
   private readonly configured: boolean;
 
-  constructor(client: GaussClient, configured: boolean) {
+  constructor(client: Planner, configured: boolean) {
     this.client = client;
     this.configured = configured;
   }

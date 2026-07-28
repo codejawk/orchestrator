@@ -50,8 +50,12 @@ export class CodexAdapter implements ModelAdapter {
       const args = [
         'exec',
         '--json',
-        '--model',
-        subtask.model,
+        // Only pass --model for a concrete model. A ChatGPT-subscription Codex
+        // account rejects model names like "gpt-5" and uses its own default
+        // (e.g. gpt-5.5); the sentinel "default" (or empty) means "let Codex
+        // choose", which is what makes a personal account work. Enterprise
+        // API-key accounts can still name a specific model.
+        ...(subtask.model && subtask.model !== 'default' ? ['--model', subtask.model] : []),
         // read-only is the tightest sandbox Codex offers. Unlike Claude it
         // cannot be denied tools entirely, so it may still read files we did
         // not select — acceptable only because routing guarantees every file in

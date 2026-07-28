@@ -1,6 +1,6 @@
 import type { IntakeResult } from '../types/ir.ts';
 import { estimateTokens } from '../optimize/tokens.ts';
-import type { GaussClient } from './gauss.ts';
+import type { Planner } from './gauss.ts';
 
 /**
  * The clarify gate.
@@ -97,7 +97,7 @@ const FORCE_QUESTIONS_ABOVE = 0.75;
 
 export async function analyzeIntake(
   prompt: string,
-  gauss: GaussClient,
+  gauss: Planner,
   context: IntakeContext,
   signal?: AbortSignal,
 ): Promise<IntakeOutcome> {
