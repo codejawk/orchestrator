@@ -56,8 +56,13 @@ export class ClaudeAdapter implements ModelAdapter {
       subtask.model,
       '--output-format',
       'json',
+      // A few turns, not one. Structured output (--json-schema) is delivered via
+      // an internal tool call, which needs a second turn — capping at 1 makes
+      // schema requests fail with error_max_turns. All real tools are disallowed
+      // below, so extra turns cannot cause agentic behaviour, only let the
+      // response complete.
       '--max-turns',
-      '1',
+      '8',
       '--permission-mode',
       'dontAsk',
       '--disallowedTools',

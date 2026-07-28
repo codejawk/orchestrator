@@ -14,29 +14,29 @@ import type { Planner } from './gauss.ts';
  * developer in a hurry is exactly the one who needs it.
  */
 
-const INTAKE_SYSTEM = `You triage coding requests before an expensive model runs.
+const INTAKE_SYSTEM = `You triage a coding request before an expensive model runs. Decide whether it is clear enough to act on, or whether one short question would materially change what you produce.
 
-Your default is to ASK NOTHING. Most requests are actionable as written. Only ask a question when, without the answer, you would write materially different code — and the answer is something you genuinely cannot get by reading the files yourself.
-
-NEVER ask a question whose answer you could find by opening the file. In particular do NOT ask:
-- whether a file is new or existing (you can see it in the workspace)
-- what language or format a file is (you can see its contents)
-- whether a file "contains code" (you can read it)
+NEVER ask a question whose answer you can get by reading the files. Do NOT ask:
+- whether a file is new or existing, what language it is, or whether it "contains code" — you can see all of that
 - to confirm something the request already states
 
-Read-only requests are almost always actionable with ZERO questions. Treat these as clear and ask nothing:
-- "what does X do", "explain X", "summarize X", "how does X work"
-- "find bugs in X", "review X", "is there anything wrong with X"
-- "list the files", "document X"
+Ask NOTHING for requests that are already actionable:
+- read-only: "what does X do", "explain X", "review X", "find bugs in X", "document X"
+- concrete generation: "write a binary search function", "add a null check to line 12"
+- a specific, named change with a clear target
 
-Only these make a request unclear, and only when they change what code gets written:
-- the target is unnamed AND cannot be inferred from the open file or the workspace
-- behaviour is given only as a vague adjective ("better", "faster", "cleaner") with no measurable target
-- two or more materially different implementations exist and nothing chooses between them
+DO ask ONE focused question (occasionally two) when a real ambiguity would change the output:
+- a bare vague adjective with no dimension: "make it better", "improve this", "optimize", "clean it up" → ask WHICH dimension (correctness / performance / readability / safety), because the resulting code differs a lot. Do not silently assume.
+- "fix the bug" when you cannot point to one specific obvious defect, or the file has several → ask which behaviour is wrong.
+- "add tests" / "refactor" / "add error handling" with no target scope → ask what to cover or which part.
+- the target is unnamed AND cannot be inferred from the open file → ask which file/module.
+- two or more materially different implementations exist and nothing selects between them.
 
-Ask at most 3 questions, and prefer 0. A wrong-but-reasonable assumption is better than a question the developer finds obvious. For every question you do ask, state what you would assume if it is skipped.
+The open file gives context but does not resolve intent: knowing strcpy.c is open tells you WHERE, not WHAT "make it better" means — that still needs a question.
 
-Set fastPath when the task is single-file, single-concern, and under roughly twenty lines of change.`;
+Prefer 0–1 questions. A genuinely clear request needs none; a genuinely vague one deserves exactly one good question rather than a wrong guess. For every question, give a concrete "assume if skipped" so the developer can say "go".
+
+Score ambiguity honestly: a bare vague adjective or an unscoped "add tests/refactor" is ~0.6–0.8, not 0.1. Set fastPath only when the task is single-file, single-concern, small, AND unambiguous.`;
 
 const INTAKE_SCHEMA = {
   name: 'intake',
@@ -141,12 +141,17 @@ export async function analyzeIntake(
   }
 
   const score = clamp01(data.ambiguityScore);
-  let questions = data.questions.map((q) => ({
-    id: q.id,
-    question: q.question,
-    options: q.options?.length ? q.options : undefined,
-    assumptionIfSkipped: q.assumptionIfSkipped,
-  }));
+  // The model can return a valid object that simply omits `questions` (it means
+  // "nothing to ask"). Treat a missing or malformed list as no questions rather
+  // than crashing the whole turn.
+  let questions = (Array.isArray(data.questions) ? data.questions : [])
+    .filter((q): q is NonNullable<typeof q> => Boolean(q && q.question))
+    .map((q) => ({
+      id: q.id ?? `q${Math.random().toString(36).slice(2, 8)}`,
+      question: q.question,
+      options: q.options?.length ? q.options : undefined,
+      assumptionIfSkipped: q.assumptionIfSkipped ?? 'I will proceed on my best reading of the prompt.',
+    }));
 
   if (score >= FORCE_QUESTIONS_ABOVE && questions.length === 0) {
     warnings.push(
