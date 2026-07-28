@@ -85,6 +85,8 @@ export interface RoutingInput {
   prices: PriceTable;
   /** Tokens the shared IR prefix adds to every subtask. */
   sharedPrefixTokens: number;
+  /** Bias routing toward faster models: frontier work drops to the standard tier. */
+  preferFast?: boolean;
   /**
    * Pins every subtask to Gauss regardless of files or cost.
    *
@@ -133,13 +135,19 @@ export function route(input: RoutingInput): RoutingResult {
       routingNote = `Pinned to Gauss: ${restricted.length} file${restricted.length === 1 ? '' : 's'} not approved for external use (${restricted.slice(0, 3).join(', ')}${restricted.length > 3 ? ', …' : ''}).`;
       policyPinned.push({ id: draft.id, paths: restricted });
     } else {
-      const tier = costTierFor(draft.kind, draft.difficulty);
+      let tier = costTierFor(draft.kind, draft.difficulty);
+      // Prefer-fast: run frontier work on the standard tier (sonnet-class), which
+      // is markedly quicker than opus-class and strong enough for most analysis.
+      if (input.preferFast && tier === 'frontier') {
+        tier = 'standard';
+        routingNote = 'prefer-fast: using the standard tier instead of frontier.';
+      }
       const preferred = tiers[tier];
       const available = preferred.find((candidate) => input.availableAdapters.has(candidate.adapter));
 
       if (available) {
         choice = available;
-        if (available !== preferred[0]) {
+        if (available !== preferred[0] && !routingNote) {
           routingNote = `${preferred[0]?.adapter} unavailable; using ${available.adapter} from the ${tier} tier.`;
         }
       } else {

@@ -263,22 +263,39 @@ function renderResults(
     sink.markdown(`## Answer\n\n${session.reveal(session.synthesis)}\n\n---\n\n`);
   }
 
-  sink.markdown('### Per-subtask results\n\n');
+  // Who did what — the model per subtask, made prominent, with timing and tokens.
+  sink.markdown('### Which model did each subtask\n\n');
   for (const subtask of session.plan?.subtasks ?? []) {
     const skipped = outcome.skipped.find((entry) => entry.id === subtask.id);
     if (skipped) {
-      sink.markdown(`- ⏭️ \`${subtask.id}\` skipped — ${skipped.reason}\n`);
+      sink.markdown(`- ⏭️ **${subtask.id}** (${subtask.kind}) — skipped: ${skipped.reason}\n`);
       continue;
     }
     const result = outcome.results.get(subtask.id);
     if (!result) {
       continue;
     }
+    const secs = (result.cost.durationMs / 1000).toFixed(1);
+    const model = `${result.cost.adapter} / ${result.cost.model}`;
     sink.markdown(
       result.ok
-        ? `- ✅ \`${subtask.id}\` on ${subtask.adapter}/${subtask.model} — ${formatUsd(result.cost.usd)}, ${formatTokens(result.cost.usage.outputTokens)} out\n`
-        : `- ❌ \`${subtask.id}\` on ${subtask.adapter} — ${session.reveal(result.error ?? 'failed')}\n`,
+        ? `- ✅ **${subtask.id}** (${subtask.kind}) → **${model}** — ${secs}s, ${formatTokens(result.cost.usage.outputTokens)} out, ${formatUsd(result.cost.usd)}\n`
+        : `- ❌ **${subtask.id}** (${subtask.kind}) → ${model} — ${session.reveal(result.error ?? 'failed')}\n`,
     );
+  }
+
+  // A one-line run total plus a link to the full report (models, tokens, savings).
+  const accounting = session.outcome?.accounting;
+  if (accounting) {
+    const all = [...accounting.planning, ...accounting.execution];
+    const totalUsd = all.reduce((sum, r) => sum + r.usd, 0);
+    const totalOut = all.reduce((sum, r) => sum + r.usage.outputTokens, 0);
+    const planningUsd = accounting.planning.reduce((sum, r) => sum + r.usd, 0);
+    sink.markdown(
+      `\n**Run total:** ${formatUsd(totalUsd)} across ${all.length} model call${all.length === 1 ? '' : 's'} ` +
+        `(${formatUsd(planningUsd)} planning), ${formatTokens(totalOut)} output tokens.\n\n`,
+    );
+    sink.button({ command: 'orchestrator.showLastReport', title: '📊 View full report (models · tokens · savings)' });
   }
 
   const findings = outcome.ledger.snapshot().entries.filter((entry) => entry.kind === 'finding');

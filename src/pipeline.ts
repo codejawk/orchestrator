@@ -38,6 +38,7 @@ import {
   gaussConfig,
   plannerConfig,
   policyConfig,
+  preferFast,
   priceOverrides,
   resolveBare,
   scanConfig,
@@ -99,6 +100,8 @@ export class Pipeline {
   readonly approvals: ApprovalStore;
   private gaussClient?: Planner;
   private auditLog?: AuditLog;
+  /** The most recent completed run, for the "view report" command. */
+  lastSession?: OrchestratorSession;
 
   constructor(context: vscode.ExtensionContext, registry: AdapterRegistry) {
     this.context = context;
@@ -702,6 +705,7 @@ export class Pipeline {
       tiers: DEFAULT_TIERS,
       prices: this.prices,
       sharedPrefixTokens: estimateTokens(renderIR(compiled.ir)),
+      preferFast: preferFast(),
       ...(session.taint.isTainted
         ? { forceGauss: { reason: session.taint.explanation || 'Sensitive content entered this conversation.' } }
         : {}),
@@ -817,6 +821,7 @@ export class Pipeline {
     });
 
     session.outcome = outcome;
+    this.lastSession = session;
     return outcome;
   }
 

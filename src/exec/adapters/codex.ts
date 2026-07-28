@@ -56,6 +56,10 @@ export class CodexAdapter implements ModelAdapter {
         // choose", which is what makes a personal account work. Enterprise
         // API-key accounts can still name a specific model.
         ...(subtask.model && subtask.model !== 'default' ? ['--model', subtask.model] : []),
+        // Reasoning effort. Codex defaults to "high", which is slow; planning
+        // and mechanical work do not need it. Match the effort to the subtask.
+        '-c',
+        `model_reasoning_effort=${codexEffort(output.reasoning)}`,
         // read-only is the tightest sandbox Codex offers. Unlike Claude it
         // cannot be denied tools entirely, so it may still read files we did
         // not select — acceptable only because routing guarantees every file in
@@ -133,6 +137,11 @@ export class CodexAdapter implements ModelAdapter {
       await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
     }
   }
+}
+
+/** Maps our reasoning levels onto Codex's effort values. */
+function codexEffort(reasoning: 'off' | 'low' | 'medium' | 'high'): string {
+  return reasoning === 'off' ? 'low' : reasoning;
 }
 
 /**

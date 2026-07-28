@@ -130,6 +130,11 @@ export function securityEnabled(): boolean {
   return config().get<boolean>('security.enabled', true);
 }
 
+/** Bias execution routing toward faster models (sonnet-class over opus-class). */
+export function preferFast(): boolean {
+  return config().get<boolean>('routing.preferFast', false);
+}
+
 export interface ScanConfig {
   maxFiles: number;
   maxFileBytes: number;

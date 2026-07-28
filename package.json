@@ -2,7 +2,7 @@
   "name": "orchestrator",
   "displayName": "Orchestrator",
   "description": "Plans on Gauss, executes across Claude, Codex and Gemini, and reports what it saved.",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "publisher": "codejawk",
   "private": true,
   "license": "UNLICENSED",
@@ -98,6 +98,10 @@
         "title": "Orchestrator: Precheck Workspace Security"
       },
       {
+        "command": "orchestrator.showLastReport",
+        "title": "Orchestrator: Show Last Run Report"
+      },
+      {
         "command": "orchestrator.reviewEdits",
         "title": "Orchestrator: Review Proposed Edits",
         "enablement": "false"
@@ -110,6 +114,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Enable the data-classification layer.\n\n**On** (default): every file is classified, a review gate stands between your workspace and any external model, and sensitive content is pinned to the planner. Keep this on where Samsung-confidential material could be present.\n\n**Off**: pure orchestration — clarify → optimize → decompose → route → execute — with every selected file free to go to the best model. No review panels, no 'pinned to Gauss'. Use this on a personal machine with no sensitive code."
+        },
+        "orchestrator.routing.preferFast": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Bias execution toward **faster** models: work that would go to the frontier tier (opus-class) runs on the standard tier (sonnet-class) instead — markedly quicker, and strong enough for most analysis and bug-finding. Turn off when you want maximum quality on hard subtasks."
         },
         "orchestrator.planner.provider": {
           "type": "string",

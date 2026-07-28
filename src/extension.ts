@@ -6,6 +6,7 @@ import { registerChatParticipant } from './chat/participant.ts';
 import { Pipeline } from './pipeline.ts';
 import { applyEdit, previewEdit } from './workspace.ts';
 import { runTwoPhasePrecheck } from './ui/precheck.ts';
+import { showReportPanel } from './panel/ReportPanel.ts';
 import { SidebarViewProvider } from './panel/SidebarView.ts';
 
 let output: vscode.LogOutputChannel;
@@ -34,6 +35,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('orchestrator.revokeApprovals', () => revokeApprovals(pipeline)),
     vscode.commands.registerCommand('orchestrator.verifyAudit', () => verifyAudit(pipeline)),
     vscode.commands.registerCommand('orchestrator.precheckWorkspace', () => precheckWorkspace(pipeline)),
+    vscode.commands.registerCommand('orchestrator.showLastReport', () => showLastReport(pipeline)),
     vscode.commands.registerCommand('orchestrator.reviewEdits', (edits: ProposedEdit[]) => reviewEdits(edits)),
     registerChatParticipant(context, registry, pipeline),
   );
@@ -86,6 +88,17 @@ async function reviewEdits(edits: ProposedEdit[]): Promise<void> {
       await vscode.window.showWarningMessage(`Could not apply edit to ${edit.path}: ${result.reason}`);
     }
   }
+}
+
+function showLastReport(pipeline: Pipeline): void {
+  const session = pipeline.lastSession;
+  const report = session ? pipeline.buildReport(session) : undefined;
+  const accounting = session ? pipeline.accountingFor(session) : undefined;
+  if (!report || !accounting || !session?.plan || !session.outcome) {
+    vscode.window.showInformationMessage('Orchestrator: no completed run yet — run a request first.');
+    return;
+  }
+  showReportPanel(report, session.plan, accounting, session.outcome.contextTokensSaved);
 }
 
 async function precheckWorkspace(pipeline: Pipeline): Promise<void> {
