@@ -201,6 +201,27 @@ export async function applyEdit(
   }
 
   const uri = vscode.Uri.joinPath(root, path);
+
+  // New-file creation: an edit with an empty `search` means "create this file
+  // (or replace it whole) with `replace`". This is how a from-scratch task —
+  // "write a C++ file that solves X" — lands its output on disk.
+  if (search === '') {
+    const exists = await fileExists(uri);
+    const edit = new vscode.WorkspaceEdit();
+    if (!exists) {
+      edit.createFile(uri, { contents: new TextEncoder().encode(replace), ignoreIfExists: false });
+    } else {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      edit.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), replace);
+    }
+    const created = await vscode.workspace.applyEdit(edit);
+    if (created && !exists) {
+      // Open the new file so the user sees the result.
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+    }
+    return created ? { ok: true } : { ok: false, reason: 'workspace rejected the file creation' };
+  }
+
   let document: vscode.TextDocument;
   try {
     document = await vscode.workspace.openTextDocument(uri);
@@ -236,12 +257,43 @@ export async function previewEdit(path: string, search: string, replace: string)
     return;
   }
   const uri = vscode.Uri.joinPath(root, path);
-  const document = await vscode.workspace.openTextDocument(uri);
-  const proposed = document.getText().replace(search, replace);
 
+  // New file (empty search): there is nothing to diff against, so just show the
+  // proposed content in a scratch buffer for review.
+  if (search === '' && !(await fileExists(uri))) {
+    const scratch = await vscode.workspace.openTextDocument({
+      content: replace,
+      language: languageFromPath(path),
+    });
+    await vscode.window.showTextDocument(scratch, { preview: true });
+    return;
+  }
+
+  const document = await vscode.workspace.openTextDocument(uri);
+  const proposed = search === '' ? replace : document.getText().replace(search, replace);
   const scratch = await vscode.workspace.openTextDocument({
     content: proposed,
     language: document.languageId,
   });
   await vscode.commands.executeCommand('vscode.diff', uri, scratch.uri, `${path} — proposed`);
+}
+
+async function fileExists(uri: vscode.Uri): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(uri);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Best-effort VS Code language id from a file extension, for scratch buffers. */
+function languageFromPath(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  const map: Record<string, string> = {
+    cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', h: 'cpp',
+    c: 'c', ts: 'typescript', js: 'javascript', py: 'python', java: 'java',
+    go: 'go', rs: 'rust', rb: 'ruby', cs: 'csharp', md: 'markdown', json: 'json',
+  };
+  return map[ext] ?? 'plaintext';
 }

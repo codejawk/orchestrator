@@ -30,6 +30,8 @@ Rules:
 - Difficulty drives model cost. Marking everything "hard" wastes money; marking a genuinely hard subtask "mechanical" produces a wrong answer that costs more to fix than it saved.
 
 kind must be one of: analyze, edit, test, review, doc, refactor.
+- Writing NEW code that should be saved as a file ("write a C++ file that solves X", "create a script") is kind "edit" — the executor writes it to disk as a new file. A "solve this problem and create a file" request is typically ONE "edit" subtask referencing no existing files.
+- Use "doc" only for prose explanations shown to the user, never for code that should become a file.
 Only assign a file to a subtask if that subtask genuinely needs it.`;
 
 const DECOMPOSE_SCHEMA = {

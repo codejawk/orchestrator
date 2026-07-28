@@ -341,13 +341,16 @@ async function runSubtask(
   return { subtask, result, saved: context.savedVersusFull, ...(warning ? { warning } : {}) };
 }
 
+const NEW_FILE_HINT =
+  ' To CREATE A NEW FILE, output an edit whose "search" is an empty string ("") and whose "replace" is the file\'s FULL content; set "path" to a sensible filename (e.g. solution.cpp). To change an existing file, "search" must match it exactly and appear once. Write portable, standard code that compiles as-is — for C/C++ use standard headers (<iostream>, <vector>, <algorithm>), never compiler-specific ones like <bits/stdc++.h>.';
+
 const KIND_INSTRUCTIONS: Record<Subtask['kind'], string> = {
   analyze: 'You analyse code and report findings. You do not propose edits.',
   review: 'You review code for defects, security issues and correctness. Report only real problems you can point at.',
-  edit: 'You produce minimal search/replace edits. The search text must match the file exactly and appear only once.',
-  refactor: 'You restructure code without changing behaviour. Produce minimal search/replace edits.',
-  test: 'You write tests that would fail before the change and pass after it.',
-  doc: 'You write documentation. Describe what the code does, not what you did.',
+  edit: 'You produce search/replace edits.' + NEW_FILE_HINT,
+  refactor: 'You restructure code without changing behaviour. Produce search/replace edits.' + NEW_FILE_HINT,
+  test: 'You write tests that would fail before the change and pass after it. Emit them as file edits' + NEW_FILE_HINT,
+  doc: 'You write documentation or standalone code. If the task is to create a file, emit it as an edit.' + NEW_FILE_HINT,
 };
 
 function systemPromptFor(subtask: Subtask): string {
