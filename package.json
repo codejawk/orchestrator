@@ -1,0 +1,75 @@
+{
+  "name": "orchestrator-mvp",
+  "displayName": "Orchestrator MVP",
+  "description": "Analyse a prompt with Opus, split it into subtasks, route each to the best Claude/Codex model, run them via CLI, and combine the result.",
+  "version": "1.5.0",
+  "publisher": "codejawk",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": { "vscode": "^1.104.0" },
+  "categories": ["AI", "Other"],
+  "main": "./dist/extension.cjs",
+  "activationEvents": ["onView:orchestratorMvp.view"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "orchestratorMvp", "title": "Orchestrator MVP", "icon": "media/orchestrator.svg" }
+      ]
+    },
+    "views": {
+      "orchestratorMvp": [
+        { "id": "orchestratorMvp.view", "name": "Orchestrator", "type": "webview" }
+      ]
+    },
+    "configuration": {
+      "title": "Orchestrator MVP",
+      "properties": {
+        "orchestratorMvp.mainModel": {
+          "type": "string",
+          "default": "claude-opus-4-8",
+          "enum": ["opus", "claude-opus-4-8", "sonnet", "claude-sonnet-4-6"],
+          "markdownDescription": "The main orchestrator model (Claude) that analyses the prompt, decomposes it into subtasks, and combines the final result."
+        },
+        "orchestratorMvp.mainEffort": {
+          "type": "string",
+          "default": "high",
+          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "description": "Effort level for the main Claude orchestrator model."
+        },
+        "orchestratorMvp.claudePath": {
+          "type": "string",
+          "default": "claude",
+          "description": "Path to the Claude Code CLI binary."
+        },
+        "orchestratorMvp.codexPath": {
+          "type": "string",
+          "default": "codex",
+          "description": "Path to the Codex CLI binary."
+        },
+        "orchestratorMvp.timeoutSeconds": {
+          "type": "number",
+          "default": 240,
+          "description": "Per-subtask timeout in seconds."
+        },
+        "orchestratorMvp.usageFloorPercent": {
+          "type": "number",
+          "default": 20,
+          "markdownDescription": "Headroom floor for usage-aware routing. If a provider has less than this % of its quota left, a subtask routed to it is moved to the other provider (when that one is healthier). Difficulty still decides the model first; this only demotes a low provider."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "node esbuild.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.104.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}
