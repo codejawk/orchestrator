@@ -20,6 +20,10 @@ export interface CliRun {
   inputTokens: number;
   outputTokens: number;
   durationMs: number;
+  /** Claude session id, so a later subtask on the same model can --resume it. */
+  sessionId?: string;
+  /** Cached input tokens (cache-read) — for reporting the caching benefit. */
+  cachedInputTokens?: number;
   error?: string;
 }
 
@@ -132,6 +136,10 @@ export async function runClaude(args: {
   system?: string;
   prompt: string;
   schema?: object;
+  /** Allow read-only tools (Read/Glob/Grep) so the model can inspect the repo. */
+  allowRead?: boolean;
+  /** Resume this Claude session so its context + prompt cache carry over. */
+  resumeSessionId?: string;
   cwd: string;
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
@@ -139,25 +147,26 @@ export async function runClaude(args: {
   onEvent?: (event: CliEvent) => void;
 }): Promise<CliRun> {
   const stream = !args.schema;
+  // Writing/execution is never allowed. Reading is allowed only for subtasks
+  // that must inspect existing code — the model then pulls in just the files it
+  // needs (on demand), which is far cheaper than inlining the whole tree.
+  const denied = args.allowRead
+    ? ['Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch']
+    : ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'WebFetch', 'WebSearch'];
   const cli = [
     '--print',
     '--model',
     args.model,
     '--output-format',
     stream ? 'stream-json' : 'json',
+    // Structured (schema) calls resolve in a couple of turns; reading workers
+    // need more to open files. Fewer turns bounds a possible loop-stall.
     '--max-turns',
-    '8',
+    args.schema ? '6' : '12',
     '--permission-mode',
     'dontAsk',
     '--disallowedTools',
-    'Bash',
-    'Read',
-    'Edit',
-    'Write',
-    'Glob',
-    'Grep',
-    'WebFetch',
-    'WebSearch',
+    ...denied,
   ];
   if (args.effort) {
     cli.push('--effort', args.effort);
@@ -170,11 +179,17 @@ export async function runClaude(args: {
   if (args.system) {
     cli.push('--system-prompt', args.system);
   }
+  if (args.resumeSessionId) {
+    // Resuming replays the session's context (cache-read, ~90% cheaper) and
+    // lets this call build on the earlier subtasks on the same model.
+    cli.push('--resume', args.resumeSessionId);
+  }
   if (args.schema) {
     cli.push('--json-schema', JSON.stringify(args.schema));
   }
 
   args.onEvent?.({ type: 'log', text: friendlyRun('claude', args.model, args.effort, args.prompt.length) });
+  args.onEvent?.({ type: 'log', text: `$ ${rawCommand(args.bin, cli)}` });
 
   let streamState: ClaudeStreamState | undefined;
   let stderrBuffer = '';
@@ -211,29 +226,32 @@ export async function runClaude(args: {
     const actualModel = streamState.actualModel || args.model;
     const inputTokens = streamState.inputTokens;
     const outputTokens = streamState.outputTokens;
+    const extra = { ...(streamState.sessionId ? { sessionId: streamState.sessionId } : {}), ...(streamState.cachedInputTokens ? { cachedInputTokens: streamState.cachedInputTokens } : {}) };
     if (r.timedOut) {
-      return { ok: false, text: '', model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, error: `timed out after ${args.timeoutMs}ms` };
+      return { ok: false, text: '', model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, ...extra, error: `timed out after ${args.timeoutMs}ms` };
     }
     if (streamState.error) {
-      return { ok: false, text: finalText, model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, error: streamState.error };
+      return { ok: false, text: finalText, model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, ...extra, error: streamState.error };
     }
     if (r.code !== 0) {
-      return { ok: false, text: finalText, model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, error: r.stderr.slice(0, 500) || `exited with code ${r.code}` };
+      return { ok: false, text: finalText, model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, ...extra, error: r.stderr.slice(0, 500) || `exited with code ${r.code}` };
     }
-    return { ok: true, text: finalText, model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs };
+    return { ok: true, text: finalText, model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, ...extra };
   }
 
   const json = extractJson<{
     is_error?: boolean;
     result?: string;
     error?: string;
+    session_id?: string;
     structured_output?: unknown;
-    usage?: { input_tokens?: number; output_tokens?: number };
+    usage?: ClaudeUsage;
     modelUsage?: Record<string, unknown>;
   }>(r.stdout);
+  const jsonExtra = { ...(json?.session_id ? { sessionId: json.session_id } : {}), ...(json?.usage?.cache_read_input_tokens ? { cachedInputTokens: json.usage.cache_read_input_tokens } : {}) };
 
   const text = json?.result ?? r.stdout;
-  const inputTokens = json?.usage?.input_tokens ?? 0;
+  const inputTokens = totalInput(json?.usage);
   const outputTokens = json?.usage?.output_tokens ?? 0;
   // Claude Code lists an internal helper model (haiku) alongside the model that
   // did the work. Report the one with the most output tokens — the real worker
@@ -241,18 +259,18 @@ export async function runClaude(args: {
   const actualModel = pickWorkerModel(json?.modelUsage, args.model);
 
   if (r.timedOut) {
-    return { ok: false, text: '', model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, error: `timed out after ${args.timeoutMs}ms` };
+    return { ok: false, text: '', model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, ...jsonExtra, error: `timed out after ${args.timeoutMs}ms` };
   }
   if (json?.is_error) {
-    return { ok: false, text: '', model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, error: json.error || json.result || 'claude reported an error' };
+    return { ok: false, text: '', model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, ...jsonExtra, error: json.error || json.result || 'claude reported an error' };
   }
   if (r.code !== 0) {
-    return { ok: false, text: '', model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, error: r.stderr.slice(0, 500) || `exited with code ${r.code}` };
+    return { ok: false, text: '', model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, ...jsonExtra, error: r.stderr.slice(0, 500) || `exited with code ${r.code}` };
   }
 
   // For a schema request, prefer the structured payload rendered back to JSON text.
   const finalText = args.schema && json?.structured_output !== undefined ? JSON.stringify(json.structured_output) : text;
-  return { ok: true, text: finalText, model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs };
+  return { ok: true, text: finalText, model: actualModel, inputTokens, outputTokens, durationMs: r.durationMs, ...jsonExtra };
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +309,7 @@ export async function runCodex(args: {
       '-',
     ];
     args.onEvent?.({ type: 'log', text: friendlyRun('codex', args.model, args.effort, args.prompt.length) });
+    args.onEvent?.({ type: 'log', text: `$ ${rawCommand(args.bin, cli)}` });
     let stdoutBuffer = '';
     let stderrBuffer = '';
     let inputTokens = 0;
@@ -403,7 +422,16 @@ interface ClaudeStreamState {
   actualModel: string;
   inputTokens: number;
   outputTokens: number;
+  cachedInputTokens: number;
+  sessionId?: string;
   error?: string;
+}
+
+interface ClaudeUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
 }
 
 type ClaudeStreamEvent = {
@@ -413,13 +441,22 @@ type ClaudeStreamEvent = {
   error?: string;
   is_error?: boolean;
   model?: string;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  session_id?: string;
+  usage?: ClaudeUsage;
   message?: {
     model?: string;
     content?: unknown;
-    usage?: { input_tokens?: number; output_tokens?: number };
+    usage?: ClaudeUsage;
   };
 };
+
+/** Total input = fresh + cache-read + cache-creation (Claude reports separately). */
+function totalInput(u?: ClaudeUsage): number {
+  if (!u) {
+    return 0;
+  }
+  return (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+}
 
 type CodexStreamEvent = {
   type?: string;
@@ -439,6 +476,7 @@ function makeClaudeStreamState(onEvent?: (event: CliEvent) => void): ClaudeStrea
     actualModel: '',
     inputTokens: 0,
     outputTokens: 0,
+    cachedInputTokens: 0,
     accept(text: string) {
       state.buffer = flushTextLines(state.buffer + text, (line) => {
         const evt = extractJson<ClaudeStreamEvent>(line);
@@ -465,6 +503,9 @@ function handleClaudeEvent(
   state: ClaudeStreamState,
   onEvent?: (event: CliEvent) => void,
 ): void {
+  if (evt.session_id) {
+    state.sessionId = evt.session_id;
+  }
   if (evt.type === 'system') {
     // Session init/status/thinking chatter is pure noise in the live view.
     return;
@@ -482,7 +523,7 @@ function handleClaudeEvent(
     // Track usage silently; only the final total is emitted (on 'result').
     const usage = evt.message?.usage;
     if (usage) {
-      state.inputTokens = usage.input_tokens ?? state.inputTokens;
+      state.inputTokens = totalInput(usage) || state.inputTokens;
       state.outputTokens = usage.output_tokens ?? state.outputTokens;
     }
     return;
@@ -491,8 +532,9 @@ function handleClaudeEvent(
     state.finalText = evt.result ?? state.finalText;
     state.actualModel = evt.model ?? state.actualModel;
     if (evt.usage) {
-      state.inputTokens = evt.usage.input_tokens ?? state.inputTokens;
+      state.inputTokens = totalInput(evt.usage) || state.inputTokens;
       state.outputTokens = evt.usage.output_tokens ?? state.outputTokens;
+      state.cachedInputTokens = evt.usage.cache_read_input_tokens ?? state.cachedInputTokens;
       onEvent?.({ type: 'usage', inputTokens: state.inputTokens, outputTokens: state.outputTokens });
     }
     if (evt.is_error) {
@@ -620,6 +662,21 @@ function friendlyRun(adapter: Adapter, model: string, effort: Effort | undefined
   const eff = effort ? ` · ${effort} effort` : '';
   const kb = promptChars >= 1000 ? `${(promptChars / 1000).toFixed(1)}k` : String(promptChars);
   return `▸ ${label}${eff} · ${kb} chars context`;
+}
+
+/** The raw command line (long inline args elided) — for the terminal log. */
+function rawCommand(bin: string, args: string[]): string {
+  const parts: string[] = [bin];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if ((a === '--system-prompt' || a === '--json-schema') && i + 1 < args.length) {
+      parts.push(a, `<${a === '--json-schema' ? 'schema' : 'system'} ${args[i + 1]!.length}ch>`);
+      i++;
+    } else {
+      parts.push(a.includes(' ') ? `'${a}'` : a);
+    }
+  }
+  return parts.join(' ');
 }
 
 function fail(model: string, error: string): CliRun {

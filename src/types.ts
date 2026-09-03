@@ -12,6 +12,9 @@ export interface ModelChoice {
   reason: string;
 }
 
+/** What a subtask returns: files written to disk, or a prose answer. */
+export type OutputKind = 'files' | 'prose';
+
 /** One unit of work the main model carved out of the request. */
 export interface Subtask {
   id: string;
@@ -22,6 +25,10 @@ export interface Subtask {
   difficulty: Difficulty;
   /** ids of subtasks whose output this one needs. */
   dependsOn: string[];
+  /** True when this subtask needs to read the existing workspace files. */
+  reads: boolean;
+  /** 'files' → writes code via markers; 'prose' → returns an explanation/answer. */
+  output: OutputKind;
   /** Assigned by the routing algorithm. */
   adapter: Adapter;
   model: string;
@@ -45,14 +52,20 @@ export interface SubtaskResult {
   model: string;
   effort: Effort;
   inputTokens: number;
+  /** Portion of input that was cache-read (warm session) — near-free. */
+  cachedInputTokens: number;
   outputTokens: number;
   durationMs: number;
   usd: number;
   error?: string;
 }
 
+export type WriteMode = 'backup' | 'overwrite' | 'skip';
+
 export interface WrittenArtifact {
   label: string;
   path: string;
-  kind: 'generated' | 'raw';
+  /** created = new file; updated = existing changed (backup saved unless mode=overwrite);
+   *  unchanged = identical, not rewritten; kept-existing = existing left, new saved alongside. */
+  status: 'created' | 'updated' | 'unchanged' | 'kept-existing';
 }

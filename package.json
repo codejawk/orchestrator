@@ -2,7 +2,7 @@
   "name": "orchestrator-mvp",
   "displayName": "Orchestrator MVP",
   "description": "Analyse a prompt with Opus, split it into subtasks, route each to the best Claude/Codex model, run them via CLI, and combine the result.",
-  "version": "1.5.0",
+  "version": "1.14.0",
   "publisher": "codejawk",
   "private": true,
   "license": "UNLICENSED",
@@ -56,6 +56,17 @@
           "type": "number",
           "default": 20,
           "markdownDescription": "Headroom floor for usage-aware routing. If a provider has less than this % of its quota left, a subtask routed to it is moved to the other provider (when that one is healthier). Difficulty still decides the model first; this only demotes a low provider."
+        },
+        "orchestratorMvp.overwrite": {
+          "type": "string",
+          "enum": ["backup", "overwrite", "skip"],
+          "default": "backup",
+          "markdownDescription": "How to treat an existing file whose content would change.\n\n- `backup` (default): overwrite, but save the previous version under `.orchestrator/<timestamp>/backup/` so nothing is lost.\n- `overwrite`: replace it outright.\n- `skip`: keep the existing file and write the new version alongside as `<name>.orchestrator-new`.\n\nIdentical files are never rewritten."
+        },
+        "orchestratorMvp.maxRunTokens": {
+          "type": "number",
+          "default": 0,
+          "markdownDescription": "Per-run token budget (input + output across all subtasks). When the total reaches this, remaining subtasks are skipped instead of run. `0` means no cap."
         }
       }
     }
@@ -64,6 +75,7 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
     "vscode:prepublish": "node esbuild.mjs --production"
   },
   "devDependencies": {

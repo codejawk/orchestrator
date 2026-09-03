@@ -31,6 +31,10 @@ export interface Route {
   note: string;
 }
 
+/** Model weight above which we consider a model "frontier" (Opus-class). */
+const STANDARD_CAP = 6; // sonnet = 6, opus = 9/10
+const EFFORT_RANK: Record<Effort, number> = { low: 0, medium: 1, high: 2, xhigh: 3, max: 4, ultra: 5 };
+
 export function routeFor(
   kind: Kind,
   difficulty: Difficulty,
@@ -57,6 +61,19 @@ function baseRoute(kind: Kind, difficulty: Difficulty, choice?: Partial<ModelCho
   const entry = findModel(choice.adapter, choice.model);
   if (!entry) {
     return fallbackRoute(`Invalid model choice ${choice.adapter}/${choice.model}.`);
+  }
+
+  // Reading/understanding/explaining is NOT frontier work — a Sonnet-class model
+  // does it excellently for a fraction of an Opus run. Cap analysis so it can
+  // never land on Opus, however "hard" the codebase looks.
+  if (kind === 'analysis') {
+    // Reading/explaining: cap the model to Sonnet-class and effort to medium.
+    const capped = entry.weight > STANDARD_CAP ? nearestOn(entry.adapter, STANDARD_CAP) : entry;
+    const wanted = choice.effort && EFFORT_RANK[choice.effort] < EFFORT_RANK.medium ? choice.effort : 'medium';
+    const effort = clampEffort(capped, wanted);
+    if (capped !== entry || effort !== choice.effort) {
+      return { adapter: capped.adapter, model: capped.id, effort, note: `Analysis routed to ${capped.label} at ${effort} (reading/explaining does not need a frontier model or high effort).` };
+    }
   }
 
   if (kind === 'review') {
